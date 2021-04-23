@@ -506,6 +506,124 @@ DirectLighting EvaluateBSDF_Line(   LightLoopContext lightLoopContext,
 //-----------------------------------------------------------------------------
 
 //custom-begin: hair and fabric hack for area lights - remove when area lights are fixed for these materials
+float4 EvaluateCookie_Punctual_Blurred(LightLoopContext lightLoopContext, LightData light,
+                               float3 lightToSample)
+{
+#ifndef LIGHT_EVALUATION_NO_COOKIE
+    int lightType = light.lightType;
+
+    // Translate and rotate 'positionWS' into the light space.
+    // 'light.right' and 'light.up' are pre-scaled on CPU.
+    float3x3 lightToWorld = float3x3(light.right, light.up, light.forward);
+    float3   positionLS   = mul(lightToSample, transpose(lightToWorld));
+
+    float4 cookie;
+
+    UNITY_BRANCH if (lightType == GPULIGHTTYPE_POINT)
+    {
+        cookie.rgb = SamplePointCookie(mul(lightToWorld, lightToSample), light.cookieScaleOffset);
+        cookie.a   = 1;
+    }
+    else
+    {
+        // Perform orthographic or perspective projection.
+        float  perspectiveZ = (lightType != GPULIGHTTYPE_PROJECTOR_BOX) ? positionLS.z : 1.0;
+        float2 positionCS   = positionLS.xy / perspectiveZ;
+
+        float z = positionLS.z;
+        float r = light.range;
+
+        // Box lights have no range attenuation, so we must clip manually.
+        bool isInBounds = Max3(abs(positionCS.x), abs(positionCS.y), abs(z - 0.5 * r) - 0.5 * r + 1) <= light.boxLightSafeExtent;
+        if (lightType != GPULIGHTTYPE_PROJECTOR_PYRAMID && lightType != GPULIGHTTYPE_PROJECTOR_BOX)
+        {
+            isInBounds = isInBounds && (dot(positionCS, positionCS) <= light.iesCut * light.iesCut);
+        }
+
+        float2 positionNDC = positionCS * 0.5 + 0.5;
+
+        // custom bit here: forcing a low cookie mip
+        float cookieWidth = light.cookieScaleOffset.x * _CookieAtlasSize.x; // cookies and atlas are guaranteed to be POT
+        float cookieMipCount = round(log2(cookieWidth));
+        // get the 4x4 mip level
+        float forceMipLevel = cookieMipCount - 2;
+        cookie.rgb = SampleCookie2D(positionNDC, light.cookieScaleOffset, forceMipLevel);
+
+        // Manually clamp to border (black).
+        cookie.a   = isInBounds ? 1.0 : 0.0;
+    }
+
+#else
+
+    // When we disable cookie, we must still perform border attenuation for pyramid and box
+    // as by default we always bind a cookie white texture for them to mimic it.
+    float4 cookie = float4(1.0, 1.0, 1.0, 1.0);
+
+    int lightType = light.lightType;
+
+    if (lightType == GPULIGHTTYPE_PROJECTOR_PYRAMID || lightType == GPULIGHTTYPE_PROJECTOR_BOX)
+    {
+        // Translate and rotate 'positionWS' into the light space.
+        // 'light.right' and 'light.up' are pre-scaled on CPU.
+        float3x3 lightToWorld = float3x3(light.right, light.up, light.forward);
+        float3 positionLS     = mul(lightToSample, transpose(lightToWorld));
+
+        // Perform orthographic or perspective projection.
+        float  perspectiveZ = (lightType != GPULIGHTTYPE_PROJECTOR_BOX) ? positionLS.z : 1.0;
+        float2 positionCS   = positionLS.xy / perspectiveZ;
+
+        float z = positionLS.z;
+        float r = light.range;
+
+        // Box lights have no range attenuation, so we must clip manually.
+        bool isInBounds = Max3(abs(positionCS.x), abs(positionCS.y), abs(z - 0.5 * r) - 0.5 * r + 1) <= light.boxLightSafeExtent;
+
+        // Manually clamp to border (black).
+        cookie.a = isInBounds ? 1.0 : 0.0;
+    }
+#endif
+
+    return cookie;
+}
+
+// Returns unassociated (non-premultiplied) color with alpha (attenuation).
+// The calling code must perform alpha-compositing.
+// distances = {d, d^2, 1/d, d_proj}, where d_proj = dot(lightToSample, light.forward).
+float4 EvaluateLight_Punctual_Blurred_Cookie(LightLoopContext lightLoopContext, PositionInputs posInput,
+    LightData light, float3 L, float4 distances)
+{
+    float4 color = float4(light.color, 1.0);
+
+    color.a *= PunctualLightAttenuation(distances, light.rangeAttenuationScale, light.rangeAttenuationBias,
+                                        light.angleScale, light.angleOffset);
+
+#ifndef LIGHT_EVALUATION_NO_HEIGHT_FOG
+    // Height fog attenuation.
+    // TODO: add an if()?
+    {
+        float cosZenithAngle = L.y;
+        float distToLight = (light.lightType == GPULIGHTTYPE_PROJECTOR_BOX) ? distances.w : distances.x;
+        float fragmentHeight = posInput.positionWS.y;
+        color.a *= TransmittanceHeightFog(_HeightFogBaseExtinction, _HeightFogBaseHeight,
+                                          _HeightFogExponents, cosZenithAngle,
+                                          fragmentHeight, distToLight);
+    }
+#endif
+
+    // Projector lights (box, pyramid) always have cookies, so we can perform clipping inside the if().
+    // Thus why we don't disable the code here based on LIGHT_EVALUATION_NO_COOKIE but we do it
+    // inside the EvaluateCookie_Punctual call
+    if (light.cookieMode != COOKIEMODE_NONE)
+    {
+        float3 lightToSample = posInput.positionWS - light.positionRWS;
+        float4 cookie = EvaluateCookie_Punctual_Blurred(lightLoopContext, light, lightToSample);
+
+        color *= cookie;
+    }
+
+    return color;
+}
+
 DirectLighting ShadeSurface_Punctual_With_Area_Light_Shadows(LightLoopContext lightLoopContext,
                                      PositionInputs posInput, BuiltinData builtinData,
                                      PreLightData preLightData, LightData light,
@@ -521,7 +639,7 @@ DirectLighting ShadeSurface_Punctual_With_Area_Light_Shadows(LightLoopContext li
     // Is it worth evaluating the light?
     if ((light.lightDimmer > 0) && IsNonZeroBSDF(V, L, preLightData, bsdfData))
     {
-        float4 lightColor = EvaluateLight_Punctual(lightLoopContext, posInput, light, L, distances);
+        float4 lightColor = EvaluateLight_Punctual_Blurred_Cookie(lightLoopContext, posInput, light, L, distances);
         lightColor.rgb *= lightColor.a; // Composite
 
 #ifdef MATERIAL_INCLUDE_TRANSMISSION
@@ -573,7 +691,7 @@ DirectLighting EvaluateBSDF_Rect(   LightLoopContext lightLoopContext,
     lightData.rangeAttenuationScale = 1.0f / (lightData.range * lightData.range);
 
     // ignore the cookie, since point light will just work like a projector :/
-    lightData.cookieMode = COOKIEMODE_NONE;
+    // lightData.cookieMode = COOKIEMODE_NONE;
 
     return ShadeSurface_Punctual_With_Area_Light_Shadows(lightLoopContext, posInput, builtinData, preLightData, lightData, bsdfData, V);
 //custom-end
