@@ -1,5 +1,4 @@
 using System;
-using UnityEngine.Serialization;
 using System.Linq;
 
 namespace UnityEngine.Rendering.HighDefinition
@@ -18,10 +17,11 @@ namespace UnityEngine.Rendering.HighDefinition
         {
             First,
             UpdateMSAA,
-            UpdateLensFlare
+            UpdateLensFlare,
+            MovedSupportRuntimeDebugDisplayToGlobalSettings
         }
 
-        static Version[] skipedStepWhenCreatedFromHDRPAsset = new Version[] {};
+        static Version[] skipedStepWhenCreatedFromHDRPAsset = new Version[] { };
 
         [SerializeField]
         Version m_Version = MigrationDescription.LastVersion<Version>();
@@ -40,6 +40,16 @@ namespace UnityEngine.Rendering.HighDefinition
             MigrationStep.New(Version.UpdateLensFlare, (HDRenderPipelineGlobalSettings data) =>
             {
                 FrameSettings.MigrateToLensFlare(ref data.m_RenderingPathDefaultCameraFrameSettings);
+            }),
+            MigrationStep.New(Version.MovedSupportRuntimeDebugDisplayToGlobalSettings, (HDRenderPipelineGlobalSettings data) =>
+            {
+#pragma warning disable 618 // Type or member is obsolete
+                var activePipeline = GraphicsSettings.currentRenderPipeline as HDRenderPipelineAsset;
+                if (activePipeline != null)
+                {
+                    data.supportRuntimeDebugDisplay = activePipeline.currentPlatformRenderPipelineSettings.m_ObsoleteSupportRuntimeDebugDisplay;
+                }
+#pragma warning restore 618
             })
         );
         bool IMigratableAsset.Migrate()
@@ -58,7 +68,7 @@ namespace UnityEngine.Rendering.HighDefinition
 
             if (assetToUpgrade == null || assetToUpgrade.Equals(null))
             {
-                assetToUpgrade = Create($"Assets/{HDProjectSettings.projectSettingsFolderPath}/HDRenderPipelineGlobalSettings.asset");
+                assetToUpgrade = Create($"Assets/{HDProjectSettingsReadOnlyBase.projectSettingsFolderPath}/HDRenderPipelineGlobalSettings.asset");
                 UpdateGraphicsSettings(assetToUpgrade);
             }
 
@@ -102,7 +112,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 assetToUpgrade.decalLayerName7 = oldAsset.currentPlatformRenderPipelineSettings.m_ObsoleteDecalLayerName7;
             }
 
-            assetToUpgrade.shaderVariantLogLevel = oldAsset.m_ObsoleteShaderVariantLogLevel;
+            assetToUpgrade.shaderVariantLogLevel = (ShaderVariantLogLevel) oldAsset.m_ObsoleteShaderVariantLogLevel;
             assetToUpgrade.lensAttenuationMode = oldAsset.m_ObsoleteLensAttenuation;
 
             // we need to make sure the old diffusion profile had time to upgrade before moving it away

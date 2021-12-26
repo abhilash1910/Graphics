@@ -4,8 +4,127 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [14.0.0] - 2021-11-17
+
+### Added
+- Renderer Features can now use the HelpURLAttribute to specify a documentation URL to be used in the inspector.
+- Added inspector documentation URLs to the SSAO, Decal, and Render Objects renderer features.
+- Changed "_USE_DRAW_PROCEDURAL" to be used only in vertex shader in Post Processing related shaders as they are not needed for fragment shaders. In result we now generate less shader variants.
+- Added support for user-selected upscaling filters. Current options are automatic, bilinear, and nearest-neighbor.
+
+### Fixed
+- Fix shadow rendering correctly to work with shader stripping in WebGl. [case 1381881](https://issuetracker.unity3d.com/issues/webgl-urp-mesh-is-not-rendered-in-the-scene-on-webgl-build)
+- VFX: Incorrect Decal rendering when rendescale is different than one [case 1343674](https://issuetracker.unity3d.com/product/unity/issues/guid/1343674/)
+- Fixed inspector documentation URLs for the URP asset and Universal Renderer asset.
+- Fixed render scale setting unintentionally affecting the scene view camera.
+- Fixed property wrappers around material properties.
+- Fixed incorrect light indexing on Windows Editor with Android target. [case 1378103](https://issuetracker.unity3d.com/product/unity/issues/guid/1378103/)
+- Fixed missing depth for Depth of Field in an overlay camera. [case 1365623](https://issuetracker.unity3d.com/product/unity/issues/guid/1365623/)
+- Fixed FXAA quality issues when render scale is not 1.0.
+
+## [13.1.2] - 2021-11-05
+
+### Added
+- Added minimal picking support for DOTS 1.0 (on parity with Hybrid Renderer V2)
+- Added support for `RTHandle`.
+
+### Changed
+- Converted internal render targets to use `RTHandle` targets instead of `RenderTargetHandle` and `RenderTargetIdentifier`.
+- Set usage of `RenderTargetHandle` and public functions using `RenderTargetIdentifier` as obsolete for future removal.
+- Split RendererFeatures `AddRenderPasses` into two functions with `SetupRenderPasses` so render targets can be used after allocation.
+- The "Add Renderer Feature" menu now supports filtering.
+- Removed the name input for the SSAO and Screen Space Shadows renderer features.
+
+### Fixed
+- Fixed an issue where 2D global lights with shadows enabled could break light layer batching [case 1376487](https://issuetracker.unity3d.com/issues/2d-urp-upgrading-global-light-sets-shadow-settings-to-enabled)
+- Fixed broken soft shadow filtering. [case 1374960](https://issuetracker.unity3d.com/product/unity/issues/guid/1374960/)
+- Fixed Lens Flare not accounting Render Scale setting. [case 1376820](https://issuetracker.unity3d.com/issues/urp-lens-flare-do-not-account-for-render-scale-setting)
+- Fixed an issue where SSAO would throw a "RenderingCommandBuffer: invalid pass index" errors. [case 1374215](https://issuetracker.unity3d.com/issues/urp-renderingcommandbuffer-invalid-pass-index-errors-when-opening-urp-sample-scenes)
+- Fixed performance regression for 2D shaders where alpha discard was disabled. [case 1335648]
+- Fixed an issue with MSAA falling back to the incorrect value when sample count 2 is not supported on some Android GPUs
+- Fixed decals to work with native render pass [case 1353141](https://issuetracker.unity3d.com/issues/urp-decals-are-not-visible-in-game-view-after-modifying-urp-asset-properties)
+- Fixed decals to work with render scale [1353885](https://issuetracker.unity3d.com/issues/urp-builtin-to-urp-render-pipeline-converter-freezes-the-editor-when-converting-rendering-settings)
+- Fixed an issue in where the _ScreenParams is not setup correctly.
+- Fixed an issue where intermediate rendertextures were not scaled when a camera was rendering to a texture [case 1342895](https://issuetracker.unity3d.com/issues/camera-rendertocubemap-offsets-and-stretches-out-the-ambient-occlusionl-layer-when-the-render-scale-is-not-equal-to-1)
+
+## [13.1.1] - 2021-10-04
+
+### Added
+- Added Depth Texture setting for Overlay Camera.
+- Added Depth Priming support for Vulkan with MSAA.
+- Added Shadows and Additional Lights off variants stripping.
+- Added Adaptive Performance Decals scaler.
+- Exposed public API for DebugDisplaySettings.
+- Added Display Stats panel to Rendering Debugger that displays CPU/GPU frame timings and bottlenecks.
+- Preserve Specular blend mode toggle for glass like materials where the specular reflection itself is not transparent.
+- Emulate alpha for multiply blend mode by whitening the base map colors using the alpha value. Keyword _ALPHAMODULATE_ON is set for multiply blend mode.
+
+### Changed
+- Main light shadow, additional light shadow and additional light keywords are now enabled based on urp setting instead of existence in scene. This allows better variant stripping.
+- Now using the SpeedTree8 PBRLit shadergraph as the default SpeedTree8 shader for Universal.
+- Changed default target sorting layers of Light2D to "Everything". Newly added sorting layers will be included in Light2Ds that have target sorting layers already set to "Everything".
+- Separated Premultiplied blend mode and Preserve Specular Lighting feature from each other. Premultiplied blend mode is now true straight premultiply mode. Preserve Specular Lighting, which applies alpha differently for diffuse and specular parts of lighting, is now a separate option for Alpha and Additive blend modes. The results of previous Premultiplied blend implementation can be achieved by using Alpha blend mode with Preserve Specular Lighting toggled on.
+- Multiply blend now keeps DstAlpha as it's RGB only.
+- Particle AlphaModulate() renamed to AlphaModulateAndPremultiply() as it does both. Moved separate AlphaModulate() and AlphaPremultiply() to URP shader library. Fix double alpha multiply for ParticleLit.
+- Improved blending modes trigger a material update which tries to keep the existing look intact. This is not always possible and manual blend mode changes might be required.
+- Reverted intermediate texture behavior.
+- Shader Variant Log Level moved from the URP Asset to URP Global Settings.
+
+### Fixed
+- Fixed incorrect premultiply blend mode. case 1260085, case 1357703, [case 1347301](https://issuetracker.unity3d.com/product/unity/issues/guid/1347301/)
+- Fixed a regression where ShaderGraph screen position was not correct in game view and when using XR [1369450]
+- Fixed overwriting of preview camera background color. [case 1357004](https://issuetracker.unity3d.com/product/unity/issues/guid/1361557/)
+- Fixed ShadowCaster now requires varying normalWS to include changed normals from vertex shader in shader graph.
+- Fixed typo in numIterationsEnclosingSphere api name
+- Fix for rendering thumbnails. [case 1348209](https://issuetracker.unity3d.com/issues/preview-of-assets-do-not-show-in-the-project-window)
+- Fixed a regression bug where XR camera postion can not be modified in beginCameraRendering [case 1365000]
+- Fixed an issue in where installing the Adaptive Performance package caused errors to the inspector UI [1368161](https://issuetracker.unity3d.com/issues/urp-package-throws-compilation-error-cs1525-when-imported-together-with-adaptive-performance-package)
+- Fixed a regression where filtering the scene view yielded incorrect visual results [1360233](https://issuetracker.unity3d.com/product/unity/issues/guid/1360233)
+- Fixed disabled debug lighting modes on Vulkan and OpenGL following a shader compiler fix. [case 1334240]
+- Fixed an issue in where the Convert Renderering Settings would cause a freeze. [case 1353885](https://issuetracker.unity3d.com/issues/urp-builtin-to-urp-render-pipeline-converter-freezes-the-editor-when-converting-rendering-settings)
+- Fixed incorrect behavior of Reflections with Smoothness lighting debug mode. [case 1374181]
+- Fixed a performance regression in the 2D renderer regarding the PostProcessPass [case 1347893]
+- Fixed light banding artifacts on some mobile platforms. [case 1375791](https://issuetracker.unity3d.com/issues/mobile-urp-banding-like-artifacts-are-visible-when-smooth-material-is-lit-by-light)
+
+## [13.1.0] - 2021-09-24
+### Added
+- Added public api and updated docs for Light2D shape properties.
+
+### Changed
+
+- URP will no longer render via an intermediate texture unless actively required by a Renderer Feature. See the upgrade guide for compatibility options and how assets are upgraded.
+- MaterialReimporter.ReimportAllMaterials now batches the asset database changes to improve performance.
+
+### Fixed
+- Fixed post processing with Pixel Perfect camera [case 1363763](https://issuetracker.unity3d.com/product/unity/issues/guid/1363763/)
+- Fixed the LensFlare flicker with TAA on SceneView (case 1356734).
+- Fixed an issue where Unlit and ParticlesUnlit shaders did not have HDR color selection for albedo [case 1283767](https://issuetracker.unity3d.com/issues/built-in-unlit-particle-shader-has-hdr-color-selection-for-albedo-urp-unlit-particles-do-not)
+
+## [13.0.0] - 2021-09-01
+### Added
+- URP global setting for stripping post processing shader variants.
+- URP global setting for stripping off shader variants.
+- Terrain grass shader alpha changed to always write 1 to alpha. Enabled alpha channel write mask.
+
+### Changed
+- Removed experimental tile deferred code.
+- VFX: New shadergraph support directly on Universal target.
+
+### Fixed
+- Added warning for lit shader detailed abledo, if texture is not linear. [1342011](https://issuetracker.unity3d.com/issues/detail-maps-packed-differently-in-built-in-vs-urp)
+- Fixed lit detail correctly upgraded from standard shader. [1323725](https://issuetracker.unity3d.com/issues/urp-detail-map-tiling-is-tied-to-base-texture-tiling)
+- URP asset can now use multi-edit. [case 1364966](https://issuetracker.unity3d.com/issues/urp-universalrenderpipelineasset-does-not-support-multi-edit)
+- Fixed an issue in where the current open scene didn't load after running the converters. [case 1365101]
+- Added "Conservative Enclosing Sphere" setting to fix shadow frustum culling issue where shadows are erroneously culled in corners of cascades [case 1153151](https://issuetracker.unity3d.com/issues/lwrp-shadows-are-being-culled-incorrectly-in-the-corner-of-the-camera-viewport-when-the-far-clip-plane-is-small)
+- Fixed memory leak with XR combined occlusion meshes. [case 1366173]
+- Fixed a bug with Sprite Targets in ShaderGraph not rendering correctly in game view [1352225]
+
+### Changed
+- Remove use of deprecated UNITY_USE_NATIVE_HDR keyword in shaders.
+
 ## [12.0.0] - 2021-01-11
 ### Added
+- Added support for default sprite mask shaders for the 2D Renderer in URP.
 - Added View Vector node to mimic old behavior of View Direction node in URP.
 - Added support for the PlayStation 5 platform.
 - Enabled deferred renderer in UI.
@@ -28,6 +147,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Added support for controlling Volume Framework Update Frequency in UI on Cameras and URP Asset as well as through scripting.
 - Added URP Global Settings Asset to the Graphics Settings - a common place for project-wide URP settings.
 - Added possibility to rename light layer values.
+- Added Light cookies support to directional, point and spot light. Directional light cookie is main light only feature.
+- Added GetUniversalAdditionalLightData, a method that returns the additional data component for a given light or create one if it doesn't exist yet.
+- VFX: Basic support of Lit output.
+- Added Motion Vector render pass for URP.
+- VFX: Fix light cookies integration.
+- Added Lights 2D to the Light Explorer window.
+- Two new URP specific scene templates, Basic which has a camera and directional light, then Standard which has the addition of a global volume with basic post effects setup.
+- Added Render Settings Converter to the Render Pipeline Converter, this tool creates and assigns URP Assets based off rendering settings of a Builtin project.
+- XR: Added Late Latching support to reduce VR latency (Quest).
+- Fixed incorrect shadow fade in deferred rendering mode.
+- Added a help button on material editor to show the shader documentation page
+- Added "Copy Depth Mode" Universal Renderer Data option that allows to specify if URP should copy the depth after the opaques pass or after the transparents pass. This can lead to bandwidth savings on mobile.
 
 ### Changed
 - Moved fog evaluation from vertex shader to pixel shader. This improves rendering of fog for big triangles and fog quality. This can change the look of the fog slightly.
@@ -55,11 +186,31 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - DepthNormals passes now sample normal maps if used on the material, otherwise output the geometry normal.
 - SSAO Texture is now R8 instead of ARGB32 if supported by the platform.
 - Enabled subsurface scattering with GI on handwritten Universal ST8 shader.
+- Material upgrader now also upgrades AnimationClips in the project that have curves bound to renamed material properties.
+- 2D Lights now inherit from Light2DBase.
+- The behavior of setting a camera's Background Type to "Dont Care" has changed on mobile. Previously, "Dont Care" would behave identically to "Solid Color" on mobile. Now, "Dont Care" corresponds to the render target being filled with arbitrary data at the beginning of the frame, which may be faster in some situations. Note that there are no guarantees for the exact content of the render target, so projects should use "Dont care" only if they are guaranteed to render to, or otherwise write every pixel every frame.
+- Stripping shader variants per renderer features instead of combined renderer features.
+- When MSAA is enabled and a depth texture is required, the opaque pass depth will be copied instead of scheduling a depth prepass.
+- URP Asset Inspector - Advanced settings have been reordered under `Show Additional Properties` on each section.
+- Changed the default name when a new urp asset is created.
+- URP Asset Inspector - `General` section has been renamed to `Rendering`.
+- Refactored some of the array resizing code around decal projector rendering to use new APIs in render core
+- UniversalRendererData and ForwardRendererData GUIDs have been reversed so that users coming from 2019LTS, 2020LTS and 2021.1 have a smooth upgrade path, you may encounter issues coming from 2021.2 Alpha/Beta versions and are recommended to start with a fresh library if initial upgrade fails.
 
 ### Fixed
+- Fixed an issue in PostProcessPass causing OnGUI draws to not show on screen. [case 1346650]
+- Fixed an issue with the blend mode in Sprite-Lit-Default shader causing alpha to overwrite the framebuffer. [case 1331392](https://issuetracker.unity3d.com/product/unity/issues/guid/1331392/)
+- Fixed pixel perfect camera rect not being correctly initialized. [case 1312646](https://issuetracker.unity3d.com/product/unity/issues/guid/1312646/)
 - Camera Inspector Stack list edition fixes.
+- Fix indentation of Emission map on material editor.
+- Fixed additional camera data help url
+- Fixed additional light data help url
 - Fixed Opacity as Density blending artifacts on Terrain that that caused Terrain to have modified splat weights of zero in some areas and greater than one in others. [case 1283124](https://issuetracker.unity3d.com/product/unity/issues/guid/1283124/)
+- Fixed an issue where Sprite type Light2Ds would throw an exeception if missing a sprite
+- Fixed an issue where Sprite type Light2Ds were missing a default sprite
+- Fixed an issue where ShadowCasters were sometimes being rendered twice in the editor while in playmode.
 - Fixed an issue where ShadowCaster2D was generating garbage when running in the editor. [case 1304158](https://issuetracker.unity3d.com/product/unity/issues/guid/1304158/)
+- Fixed an issue where the 2D Renderer was not rendering depth and stencil in the normal rendering pass
 - Fixed an issue where 2D lighting was incorrectly calculated when using a perspective camera.
 - Fixed an issue where objects in motion might jitter when the Pixel Perfect Camera is used. [case 1300474](https://issuetracker.unity3d.com/issues/urp-characters-sprite-repeats-in-the-build-when-using-pixel-perfect-camera-and-2d-renderer)
 - Fixed an issue where filtering in the scene view would not properly highlight the filtered objects. case 1324359
@@ -87,6 +238,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Fixed an issue where Particle Lit shader had an incorrect fallback shader [case 1312459]
 - Fixed an issue with backbuffer MSAA on Vulkan desktop platforms.
 - Fixed shadow cascade blend culling factor.
+- Fixed remove of the Additional Light Data when removing the Light Component.
+- Fixed remove of the Additional Camera Data when removing the Camera Component.
 - Fixed shadowCoord error when main light shadow defined in unlit shader graph [case 1175274](https://issuetracker.unity3d.com/issues/shadows-not-applying-when-using-file-in-a-custom-function-node-with-universal-rp)
 - Removed Custom.meta which was causing warnings. [case 1314288](https://issuetracker.unity3d.com/issues/urp-warnings-about-missing-metadata-appear-after-installing)
 - Fixed a case where shadow fade was clipped too early.
@@ -109,8 +262,41 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Fixed an issue where Depth Prepass was not run when SSAO was set to Depth Mode.
 - Fixed an issue where changing camera's position in the BeginCameraRendering do not apply properly. [case 1318629] (https://issuetracker.unity3d.com/issues/camera-doesnt-move-when-changing-its-position-in-the-begincamerarendering-and-the-endcamerarendering-methods)
 - Fixed depth of field pass usage on unsupported devices. [case 1327076](https://issuetracker.unity3d.com/issues/adreno-3xx-nothing-is-rendered-when-post-processing-is-enabled)
+- Fixed an issue where SMAA did not work for OpenGL [case 1318214](https://issuetracker.unity3d.com/issues/urp-there-is-no-effect-when-using-smaa-in-urp-with-opengles-api)
 - Fixed an issue with Shader Graph Lit shaders where the normalized view direction produced incorrect lighting. [1332804]
 - Fixed return values from GetStereoProjectionMatrix() and SetStereoViewMatrix(). [case 1312813](https://issuetracker.unity3d.com/issues/xr-urp-begincamerarender-method-is-lagging-behind-when-using-urp)
+- Fixed CopyDepthPass incorrectly always enqueued when deferred rendering mode was enabled when it should depends on the pipeline asset settings.
+- Fixed renderer post processing option to work with asset selector re-assing. [case 1319454](https://issuetracker.unity3d.com/issues/urp-universal-renderer-post-processing-doesnt-enable-when-postprocessdata-reassigned-from-the-asset-selector-window)
+- Fixed post processing to be enabled by default in the renderer when creating URP asset option. [case 1333461](https://issuetracker.unity3d.com/issues/post-processing-is-disabled-by-default-in-the-forward-renderer-when-creating-a-new-urp-asset)
+- Fixed shaderGraph shaders to render into correct depthNormals passes when deferred rendering mode and SSAO are enabled.
+- Fixed ordering of subshaders in the Unlit Shader Graph, such that shader target 4.5 takes priority over 2.0. [case 1328636](https://issuetracker.unity3d.com/product/unity/issues/guid/1328636/)
+- Fixed issue where it will clear camera color if post processing is happening on XR [case 1324451]
+- Fixed a case where camera dimension can be zero. [case 1321168](https://issuetracker.unity3d.com/issues/urp-attempting-to-get-camera-relative-temporary-rendertexture-is-thrown-when-tweening-the-viewport-rect-values-of-a-camera)
+- Fixed renderer creation in playmode to have its property reloaded. [case 1333463]
+- Fixed gizmos no longer allocate memory in game view. [case 1328852]
+- Fixed an issue where shadow artefacts appeared between cascades on Terrain Detail objects.
+- Fixed ShaderGraph materials to select render queue in the same way as handwritten shader materials by default, but allows for a user override for custom behavior. [case 1335795]
+- Fixed sceneview debug mode rendering (case 1211436).
+- URP Global Settings can now be unassigned in the Graphics tab (case 1343570).
+- VFX: Fixed soft particles when HDR or Opaque texture isn't enabled
+- VFX: Fixed OpenGL soft particles fallback when depth texture isn't available
+- Fixed soft shadows shader variants not set to multi_compile_fragment on some shaders (gbuffer pass, speedtree shaders, WavingGrass shader).
+- Fixed issue with legacy stereo matrices with XR multipass. [case 1342416]
+- Fixed unlit shader function name ambiguity
+- Fixed Terrain holes not appearing in shadows [case 1349305]
+- VFX: Compilation issue with ShaderGraph and planar lit outputs [case 1349894](https://issuetracker.unity3d.com/product/unity/issues/guid/1349894/)
+- Fixed an issue where _AfterPostProcessTexture was no longer being assigned in UniversalRenderer.
+- Fixed an issue where TerrainLit was rendering color lighter than Lit [case 1340751] (https://issuetracker.unity3d.com/product/unity/issues/guid/1340751/)
+- Fixed Camera rendering when capture action and post processing present. [case 1350313]
+- Fixed artifacts in Speed Tree 8 billboard LODs due to SpeedTree LOD smoothing/crossfading [case 1348407]
+- Fix sporadic NaN when using normal maps with XYZ-encoding [case 1351020](https://issuetracker.unity3d.com/issues/android-urp-vulkan-nan-pixels-and-bloom-post-processing-generates-visual-artifacts)
+- Support undo of URP Global Settings asset assignation (case 1342987).
+- Removed unsupported fields from Presets of Light and Camera [case 1335979].
+- Fixed graphical artefact when terrain height map is used with rendering layer mask for lighting.
+- Fixed URP's vignette effect to respect XR's view center, since with Asymmetric FOV, the center of the view is not always the center of the texture [case 1358336](https://issuetracker.unity3d.com/issues/xr-sdk-urp-vignette-post-processing-effect-is-overlapping-between-eyes)
+- Fixed an issue where screen space shadows has flickering with deferred mode [case 1354681](https://issuetracker.unity3d.com/issues/screen-space-shadows-flicker-in-scene-view-when-using-deferred-rendering)
+- Fixed shadowCascadeBlendCullingFactor to be 1.0
+- Fixed missing property values in a RendererFeature of screen space shadows by adding tooltip for it instead of showing them. [case 1327356]
 
 ### Changed
 - Change Asset/Create/Shader/Universal Render Pipeline/Lit Shader Graph to Asset/Create/Shader Graph/URP/Lit Shader Graph

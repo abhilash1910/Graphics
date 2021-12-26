@@ -21,6 +21,7 @@ namespace UnityEditor.Rendering.HighDefinition
         public SerializedProperty antialiasing { get; }
 
         // HDRP specific properties
+        public SerializedProperty focusDistance;
         public SerializedProperty iso;
         public SerializedProperty shutterSpeed;
         public SerializedProperty aperture;
@@ -37,12 +38,16 @@ namespace UnityEditor.Rendering.HighDefinition
         public SerializedProperty deepLearningSuperSamplingUseOptimalSettings;
         public SerializedProperty deepLearningSuperSamplingSharpening;
 
+        public SerializedProperty fsrOverrideSharpness;
+        public SerializedProperty fsrSharpness;
+
         public SerializedProperty SMAAQuality;
         public SerializedProperty taaSharpenStrength;
         public SerializedProperty taaHistorySharpening;
         public SerializedProperty taaAntiFlicker;
         public SerializedProperty taaMotionVectorRejection;
         public SerializedProperty taaAntiRinging;
+        public SerializedProperty taaBaseBlendFactor;
         public SerializedProperty taaQualityLevel;
 
         public SerializedProperty clearColorMode;
@@ -78,6 +83,7 @@ namespace UnityEditor.Rendering.HighDefinition
             antialiasing = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.antialiasing);
 
             // HDRP specific properties
+            focusDistance = serializedAdditionalDataObject.FindProperty("physicalParameters.m_FocusDistance");
             iso = serializedAdditionalDataObject.FindProperty("physicalParameters.m_Iso");
             shutterSpeed = serializedAdditionalDataObject.FindProperty("physicalParameters.m_ShutterSpeed");
             aperture = serializedAdditionalDataObject.FindProperty("physicalParameters.m_Aperture");
@@ -95,6 +101,9 @@ namespace UnityEditor.Rendering.HighDefinition
             deepLearningSuperSamplingUseOptimalSettings = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.deepLearningSuperSamplingUseOptimalSettings);
             deepLearningSuperSamplingSharpening = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.deepLearningSuperSamplingSharpening);
 
+            fsrOverrideSharpness = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.fsrOverrideSharpness);
+            fsrSharpness = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.fsrSharpness);
+
             SMAAQuality = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.SMAAQuality);
             taaSharpenStrength = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.taaSharpenStrength);
             taaQualityLevel = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.TAAQuality);
@@ -103,6 +112,7 @@ namespace UnityEditor.Rendering.HighDefinition
             taaMotionVectorRejection = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.taaMotionVectorRejection);
             taaAntiRinging = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.taaAntiHistoryRinging);
             taaQualityLevel = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.TAAQuality);
+            taaBaseBlendFactor = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.taaBaseBlendFactor);
 
             clearColorMode = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.clearColorMode);
             backgroundColorHDR = serializedAdditionalDataObject.Find((HDAdditionalCameraData d) => d.backgroundColorHDR);

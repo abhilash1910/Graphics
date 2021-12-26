@@ -54,12 +54,8 @@ namespace UnityEngine.Rendering.HighDefinition
         public ComputeShader subSurfaceRayTracingCS;
 
         // Denoising
-        [Reload("Runtime/RenderPipeline/Raytracing/Shaders/Denoising/TemporalFilter.compute")]
-        public ComputeShader temporalFilterCS;
         [Reload("Runtime/RenderPipeline/Raytracing/Shaders/Denoising/SimpleDenoiser.compute")]
         public ComputeShader simpleDenoiserCS;
-        [Reload("Runtime/RenderPipeline/Raytracing/Shaders/Denoising/DiffuseDenoiser.compute")]
-        public ComputeShader diffuseDenoiserCS;
         [Reload("Runtime/RenderPipeline/Raytracing/Shaders/Denoising/ReflectionDenoiser.compute")]
         public ComputeShader reflectionDenoiserCS;
         [Reload("Runtime/RenderPipeline/Raytracing/Shaders/Denoising/DiffuseShadowDenoiser.compute")]
@@ -73,7 +69,13 @@ namespace UnityEngine.Rendering.HighDefinition
 
         // Path Tracing
         [Reload("Runtime/RenderPipeline/PathTracing/Shaders/PathTracingMain.raytrace")]
-        public RayTracingShader pathTracing;
+        public RayTracingShader pathTracingRT;
+        [Reload("Runtime/RenderPipeline/PathTracing/Shaders/PathTracingSkySamplingData.compute")]
+        public ComputeShader pathTracingSkySamplingDataCS;
+
+        // Ray Marching
+        [Reload("Runtime/RenderPipeline/Raytracing/Shaders/RayMarching.compute")]
+        public ComputeShader rayMarchingCS;
 
         // Ray Binning
         [Reload("Runtime/RenderPipeline/Raytracing/Shaders/Common/RayBinning.compute")]
@@ -86,5 +88,9 @@ namespace UnityEngine.Rendering.HighDefinition
         // Filtering for reflections
         [Reload("Runtime/RenderPipelineResources/Texture/ReflectionKernelMapping.png")]
         public Texture2D reflectionFilterMapping;
+
+        // Ray tracing Debug
+        [Reload("Runtime/RenderPipeline/Raytracing/Shaders/RTASDebug.raytrace")]
+        public RayTracingShader rtasDebug;
     }
 }

@@ -6,13 +6,38 @@ namespace UnityEngine.Rendering.HighDefinition
     {
         private ComputeBuffer m_EmptyIndexBuffer = null;
 
+        internal void RetrieveExtraDataFromProbeVolumeBake(ProbeReferenceVolume.ExtraDataActionInput input)
+        {
+            var hdProbes = GameObject.FindObjectsOfType<HDProbe>();
+            foreach (var hdProbe in hdProbes)
+            {
+                hdProbe.TryUpdateLuminanceSHL2ForNormalization();
+#if UNITY_EDITOR
+                // If we are treating probes inside a prefab, we need to explicitly record the mods
+                UnityEditor.PrefabUtility.RecordPrefabInstancePropertyModifications(hdProbe);
+#endif
+            }
+        }
+
+        void RegisterRetrieveOfProbeVolumeExtraDataAction()
+        {
+            ProbeReferenceVolume.instance.retrieveExtraDataAction = null;
+            ProbeReferenceVolume.instance.retrieveExtraDataAction += RetrieveExtraDataFromProbeVolumeBake;
+        }
+
+        bool IsAPVEnabled()
+        {
+            return m_Asset.currentPlatformRenderPipelineSettings.supportProbeVolume && m_GlobalSettings.supportProbeVolumes;
+        }
+
         private void BindAPVRuntimeResources(CommandBuffer cmdBuffer, HDCamera hdCamera)
         {
             bool needToBindNeutral = true;
+            var refVolume = ProbeReferenceVolume.instance;
+
             // Do this only if the framesetting is on, otherwise there is some hidden cost
             if (hdCamera.frameSettings.IsEnabled(FrameSettingsField.ProbeVolume))
             {
-                var refVolume = ProbeReferenceVolume.instance;
                 ProbeReferenceVolume.RuntimeResources rr = refVolume.GetRuntimeResources();
 
                 bool validResources = rr.index != null && rr.L0_L1rx != null && rr.L1_G_ry != null && rr.L1_B_rz != null;
@@ -20,12 +45,13 @@ namespace UnityEngine.Rendering.HighDefinition
                 if (validResources)
                 {
                     cmdBuffer.SetGlobalBuffer(HDShaderIDs._APVResIndex, rr.index);
+                    cmdBuffer.SetGlobalBuffer(HDShaderIDs._APVResCellIndices, rr.cellIndices);
 
                     cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL0_L1Rx, rr.L0_L1rx);
                     cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL1G_L1Ry, rr.L1_G_ry);
                     cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL1B_L1Rz, rr.L1_B_rz);
 
-                    if (m_Asset.currentPlatformRenderPipelineSettings.probeVolumeSHBands == ProbeVolumeSHBands.SphericalHarmonicsL2)
+                    if (refVolume.shBands == ProbeVolumeSHBands.SphericalHarmonicsL2)
                     {
                         cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL2_0, rr.L2_0);
                         cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL2_1, rr.L2_1);
@@ -47,13 +73,14 @@ namespace UnityEngine.Rendering.HighDefinition
                 }
 
                 cmdBuffer.SetGlobalBuffer(HDShaderIDs._APVResIndex, m_EmptyIndexBuffer);
+                cmdBuffer.SetGlobalBuffer(HDShaderIDs._APVResCellIndices, m_EmptyIndexBuffer);
 
                 cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL0_L1Rx, TextureXR.GetBlackTexture3D());
 
                 cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL1G_L1Ry, TextureXR.GetBlackTexture3D());
                 cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL1B_L1Rz, TextureXR.GetBlackTexture3D());
 
-                if (m_Asset.currentPlatformRenderPipelineSettings.probeVolumeSHBands == ProbeVolumeSHBands.SphericalHarmonicsL2)
+                if (refVolume.shBands == ProbeVolumeSHBands.SphericalHarmonicsL2)
                 {
                     cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL2_0, TextureXR.GetBlackTexture3D());
                     cmdBuffer.SetGlobalTexture(HDShaderIDs._APVResL2_1, TextureXR.GetBlackTexture3D());
@@ -66,9 +93,9 @@ namespace UnityEngine.Rendering.HighDefinition
         private void UpdateShaderVariablesProbeVolumes(ref ShaderVariablesGlobal cb, HDCamera hdCamera, CommandBuffer cmd)
         {
             bool loadedData = ProbeReferenceVolume.instance.DataHasBeenLoaded();
-            cb._EnableProbeVolumes = (hdCamera.frameSettings.IsEnabled(FrameSettingsField.ProbeVolume) && loadedData) ? 1u : 0u;
-
+            var weight = ProbeReferenceVolume.instance.probeVolumesWeight;
             var probeVolumeOptions = hdCamera.volumeStack.GetComponent<ProbeVolumesOptions>();
+            cb._EnableProbeVolumes = (hdCamera.frameSettings.IsEnabled(FrameSettingsField.ProbeVolume) && loadedData && weight > 0f) ? 1u : 0u;
 
             if (cb._EnableProbeVolumes > 0)
             {
@@ -77,6 +104,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 parameters.viewBias = probeVolumeOptions.viewBias.value;
                 parameters.scaleBiasByMinDistanceBetweenProbes = probeVolumeOptions.scaleBiasWithMinProbeDistance.value;
                 parameters.samplingNoise = probeVolumeOptions.samplingNoise.value;
+                parameters.weight = weight;
                 ProbeReferenceVolume.instance.UpdateConstantBuffer(cmd, parameters);
             }
         }

@@ -1,7 +1,7 @@
 #ifndef UNITY_PATH_TRACING_MATERIAL_INCLUDED
 #define UNITY_PATH_TRACING_MATERIAL_INCLUDED
 
-#define BSDF_WEIGHT_EPSILON 0.001
+#define BSDF_WEIGHT_EPSILON 0.00001
 
 struct MaterialData
 {
@@ -12,9 +12,6 @@ struct MaterialData
     // Subsurface scattering
     bool     isSubsurface;
     float    subsurfaceWeightFactor;
-
-    // Index of refraction (if relevant)
-    float    ior;
 
     // View vector, and altered shading normal
     // (to be consistent with the view vector and geometric normal)
@@ -88,20 +85,6 @@ float3 GetDiffuseNormal(MaterialData mtlData)
 float3 GetSpecularNormal(MaterialData mtlData)
 {
     return mtlData.Nv;
-}
-
-float3 GetLightNormal(MaterialData mtlData)
-{
-    // If both diffuse and specular normals are quasi-indentical, return one of them, otherwise return a null vector
-    return dot(GetDiffuseNormal(mtlData), GetSpecularNormal(mtlData)) > 0.99 ? GetDiffuseNormal(mtlData) : float3(0.0, 0.0, 0.0);
-}
-
-float3x3 GetSpecularTangentFrame(MaterialData mtlData)
-{
-    // If we have anisotropy, we want our local frame to follow tangential directions, otherwise any orientation will do
-    return mtlData.bsdfData.anisotropy != 0.0 ?
-        float3x3(mtlData.bsdfData.tangentWS, mtlData.bsdfData.bitangentWS, GetSpecularNormal(mtlData)) :
-        GetLocalFrame(GetSpecularNormal(mtlData));
 }
 
 float3 ComputeConsistentShadingNormal(float3 Wi, float3 G, float3 N)

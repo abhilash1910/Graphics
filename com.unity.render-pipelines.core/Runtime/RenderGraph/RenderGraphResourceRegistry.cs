@@ -2,6 +2,11 @@ using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RendererUtils;
+
+// Typedefs for the in-engine RendererList API (to avoid conflicts with the experimental version)
+using CoreRendererList = UnityEngine.Rendering.RendererUtils.RendererList;
+using CoreRendererListDesc = UnityEngine.Rendering.RendererUtils.RendererListDesc;
 
 namespace UnityEngine.Experimental.Rendering.RenderGraphModule
 {
@@ -33,11 +38,11 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
 
         class RenderGraphResourcesData
         {
-            public DynamicArray<IRenderGraphResource>   resourceArray = new DynamicArray<IRenderGraphResource>();
-            public int                                  sharedResourcesCount;
-            public IRenderGraphResourcePool             pool;
-            public ResourceCallback                     createResourceCallback;
-            public ResourceCallback                     releaseResourceCallback;
+            public DynamicArray<IRenderGraphResource> resourceArray = new DynamicArray<IRenderGraphResource>();
+            public int sharedResourcesCount;
+            public IRenderGraphResourcePool pool;
+            public ResourceCallback createResourceCallback;
+            public ResourceCallback releaseResourceCallback;
 
             public void Clear(bool onException, int frameIndex)
             {
@@ -80,15 +85,18 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
             }
         }
 
-        RenderGraphResourcesData[]          m_RenderGraphResources = new RenderGraphResourcesData[(int)RenderGraphResourceType.Count];
-        DynamicArray<RendererListResource>  m_RendererListResources = new DynamicArray<RendererListResource>();
-        RenderGraphDebugParams              m_RenderGraphDebug;
-        RenderGraphLogger                   m_ResourceLogger = new RenderGraphLogger();
-        RenderGraphLogger                   m_FrameInformationLogger; // Comes from the RenderGraph instance.
-        int                                 m_CurrentFrameIndex;
-        int                                 m_ExecutionCount;
+        RenderGraphResourcesData[] m_RenderGraphResources = new RenderGraphResourcesData[(int)RenderGraphResourceType.Count];
+        DynamicArray<RendererListResource> m_RendererListResources = new DynamicArray<RendererListResource>();
+        RenderGraphDebugParams m_RenderGraphDebug;
+        RenderGraphLogger m_ResourceLogger = new RenderGraphLogger();
+        RenderGraphLogger m_FrameInformationLogger; // Comes from the RenderGraph instance.
+        int m_CurrentFrameIndex;
+        int m_ExecutionCount;
 
-        RTHandle                            m_CurrentBackbuffer;
+        RTHandle m_CurrentBackbuffer;
+
+        const int kInitialRendererListCount = 256;
+        List<CoreRendererList> m_ActiveRendererLists = new List<CoreRendererList>(kInitialRendererListCount);
 
         #region Internal Interface
         internal RTHandle GetTexture(in TextureHandle handle)
@@ -96,7 +104,17 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
             if (!handle.IsValid())
                 return null;
 
-            return GetTextureResource(handle.handle).graphicsResource;
+            var texResource = GetTextureResource(handle.handle);
+            var resource = texResource.graphicsResource;
+            if (resource == null)
+            {
+                if (handle.fallBackResource != TextureHandle.nullHandle.handle)
+                    return GetTextureResource(handle.fallBackResource).graphicsResource;
+                else if (!texResource.imported)
+                    throw new InvalidOperationException("Trying to use a texture that was already released or not yet created. Make sure you declare it for reading in your pass or you don't read it before it's been written to at least once.");
+            }
+
+            return resource;
         }
 
         internal bool TextureNeedsFallback(in TextureHandle handle)
@@ -107,10 +125,10 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
             return GetTextureResource(handle.handle).NeedsFallBack();
         }
 
-        internal RendererList GetRendererList(in RendererListHandle handle)
+        internal CoreRendererList GetRendererList(in RendererListHandle handle)
         {
             if (!handle.IsValid() || handle >= m_RendererListResources.size)
-                return RendererList.nullRendererList;
+                return CoreRendererList.nullRendererList;
 
             return m_RendererListResources[handle].rendererList;
         }
@@ -120,7 +138,11 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
             if (!handle.IsValid())
                 return null;
 
-            return GetComputeBufferResource(handle.handle).graphicsResource;
+            var resource = GetComputeBufferResource(handle.handle);
+            if (resource == null)
+                throw new InvalidOperationException("Trying to use a compute buffer that was already released or not yet created. Make sure you declare it for reading in your pass or you don't read it before it's been written to at least once.");
+
+            return resource.graphicsResource;
         }
 
         private RenderGraphResourceRegistry()
@@ -278,6 +300,18 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
             return new TextureHandle(textureIndex, shared: true);
         }
 
+        internal void RefreshSharedTextureDesc(TextureHandle texture, in TextureDesc desc)
+        {
+            if (!IsRenderGraphResourceShared(RenderGraphResourceType.Texture, texture.handle))
+            {
+                throw new InvalidOperationException($"Trying to refresh texture {texture} that is not a shared resource.");
+            }
+
+            var texResource = GetTextureResource(texture.handle);
+            texResource.ReleaseGraphicsResource();
+            texResource.desc = desc;
+        }
+
         internal void ReleaseSharedTexture(TextureHandle texture)
         {
             var texResources = m_RenderGraphResources[(int)RenderGraphResourceType.Texture];
@@ -333,7 +367,13 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
             return (m_RenderGraphResources[(int)RenderGraphResourceType.Texture].resourceArray[handle] as TextureResource).desc;
         }
 
-        internal RendererListHandle CreateRendererList(in RendererListDesc desc)
+        internal void ForceTextureClear(in ResourceHandle handle, Color clearColor)
+        {
+            GetTextureResource(handle).desc.clearBuffer = true;
+            GetTextureResource(handle).desc.clearColor = clearColor;
+        }
+
+        internal RendererListHandle CreateRendererList(in CoreRendererListDesc desc)
         {
             ValidateRendererListDesc(desc);
 
@@ -501,24 +541,18 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
 #endif
         }
 
-        void ValidateRendererListDesc(in RendererListDesc desc)
+        void ValidateRendererListDesc(in CoreRendererListDesc desc)
         {
 #if DEVELOPMENT_BUILD || UNITY_EDITOR
 
-            if (desc.passName != ShaderTagId.none && desc.passNames != null
-                || desc.passName == ShaderTagId.none && desc.passNames == null)
+            if (!desc.IsValid())
             {
-                throw new ArgumentException("Renderer List creation descriptor must contain either a single passName or an array of passNames.");
+                throw new ArgumentException("Renderer List descriptor is not valid.");
             }
 
             if (desc.renderQueueRange.lowerBound == 0 && desc.renderQueueRange.upperBound == 0)
             {
                 throw new ArgumentException("Renderer List creation descriptor must have a valid RenderQueueRange.");
-            }
-
-            if (desc.camera == null)
-            {
-                throw new ArgumentException("Renderer List creation descriptor must have a valid Camera.");
             }
 #endif
         }
@@ -537,17 +571,21 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
 #endif
         }
 
-        internal void CreateRendererLists(List<RendererListHandle> rendererLists)
+        internal void CreateRendererLists(List<RendererListHandle> rendererLists, ScriptableRenderContext context, bool manualDispatch = false)
         {
-            // For now we just create a simple structure
-            // but when the proper API is available in trunk we'll kick off renderer lists creation jobs here.
+            // We gather the active renderer lists of a frame in a list/array before we pass it in the core API for batch processing
+            m_ActiveRendererLists.Clear();
+
             foreach (var rendererList in rendererLists)
             {
                 ref var rendererListResource = ref m_RendererListResources[rendererList];
                 ref var desc = ref rendererListResource.desc;
-                RendererList newRendererList = RendererList.Create(desc);
-                rendererListResource.rendererList = newRendererList;
+                rendererListResource.rendererList = context.CreateRendererList(desc);
+                m_ActiveRendererLists.Add(rendererListResource.rendererList);
             }
+
+            if (manualDispatch)
+                context.PrepareRendererListsAsync(m_ActiveRendererLists);
         }
 
         internal void Clear(bool onException)
@@ -557,6 +595,7 @@ namespace UnityEngine.Experimental.Rendering.RenderGraphModule
             for (int i = 0; i < (int)RenderGraphResourceType.Count; ++i)
                 m_RenderGraphResources[i].Clear(onException, m_CurrentFrameIndex);
             m_RendererListResources.Clear();
+            m_ActiveRendererLists.Clear();
         }
 
         internal void PurgeUnusedGraphicsResources()

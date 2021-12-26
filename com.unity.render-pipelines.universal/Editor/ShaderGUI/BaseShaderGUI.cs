@@ -1,14 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEditor.Rendering;
-using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEditor.Rendering.Universal;
 using UnityEditor.ShaderGraph;
-using RenderQueue = UnityEngine.Rendering.RenderQueue;
+using UnityEditor.ShaderGraph.Drawing;
+using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using static Unity.Rendering.Universal.ShaderUtils;
-using System.Linq;
+using RenderQueue = UnityEngine.Rendering.RenderQueue;
 
 namespace UnityEditor
 {
@@ -17,6 +18,7 @@ namespace UnityEditor
         #region EnumsAndClasses
 
         [Flags]
+        [URPHelpURL("shaders-in-universalrp")]
         protected enum Expandable
         {
             SurfaceOptions = 1 << 0,
@@ -52,12 +54,19 @@ namespace UnityEditor
             Both = 0
         }
 
+        public enum QueueControl
+        {
+            Auto = 0,
+            UserOverride = 1
+        }
+
         protected class Styles
         {
             public static readonly string[] surfaceTypeNames = Enum.GetNames(typeof(SurfaceType));
             public static readonly string[] blendModeNames = Enum.GetNames(typeof(BlendMode));
             public static readonly string[] renderFaceNames = Enum.GetNames(typeof(RenderFace));
             public static readonly string[] zwriteNames = Enum.GetNames(typeof(UnityEditor.Rendering.Universal.ShaderGraph.ZWriteControl));
+            public static readonly string[] queueControlNames = Enum.GetNames(typeof(QueueControl));
 
             // need to skip the first entry for ztest (ZTestMode.Disabled is not a valid value)
             public static readonly int[] ztestValues = ((int[])Enum.GetValues(typeof(UnityEditor.Rendering.Universal.ShaderGraph.ZTestMode))).Skip(1).ToArray();
@@ -65,7 +74,7 @@ namespace UnityEditor
 
             // Categories
             public static readonly GUIContent SurfaceOptions =
-                EditorGUIUtility.TrTextContent("Surface Options", "Controls how Universal RP renders the Material on a screen.");
+                EditorGUIUtility.TrTextContent("Surface Options", "Controls how URP Renders the material on screen.");
 
             public static readonly GUIContent SurfaceInputs = EditorGUIUtility.TrTextContent("Surface Inputs",
                 "These settings describe the look and feel of the surface itself.");
@@ -78,6 +87,9 @@ namespace UnityEditor
 
             public static readonly GUIContent blendingMode = EditorGUIUtility.TrTextContent("Blending Mode",
                 "Controls how the color of the Transparent surface blends with the Material color in the background.");
+
+            public static readonly GUIContent preserveSpecularText = EditorGUIUtility.TrTextContent("Preserve Specular Lighting",
+                "Preserves specular lighting intensity and size by not applying transparent alpha to the specular light contribution.");
 
             public static readonly GUIContent cullingText = EditorGUIUtility.TrTextContent("Render Face",
                 "Specifies which faces to cull from your geometry. Front culls front faces. Back culls backfaces. None means that both sides are rendered.");
@@ -104,10 +116,10 @@ namespace UnityEditor
                 "Specifies the base Material and/or Color of the surface. If you’ve selected Transparent or Alpha Clipping under Surface Options, your Material uses the Texture’s alpha channel or color.");
 
             public static readonly GUIContent emissionMap = EditorGUIUtility.TrTextContent("Emission Map",
-                "Sets a Texture map to use for emission. You can also select a color with the color picker. Colors are multiplied over the Texture.");
+                "Determines the color and intensity of light that the surface of the material emits.");
 
             public static readonly GUIContent normalMapText =
-                EditorGUIUtility.TrTextContent("Normal Map", "Assigns a tangent-space normal map.");
+                EditorGUIUtility.TrTextContent("Normal Map", "Designates a Normal Map to create the illusion of bumps and dents on this Material's surface.");
 
             public static readonly GUIContent bumpScaleNotSupported =
                 EditorGUIUtility.TrTextContent("Bump scale is not supported on mobile platforms");
@@ -117,6 +129,11 @@ namespace UnityEditor
 
             public static readonly GUIContent queueSlider = EditorGUIUtility.TrTextContent("Sorting Priority",
                 "Determines the chronological rendering order for a Material. Materials with lower value are rendered first.");
+
+            public static readonly GUIContent queueControl = EditorGUIUtility.TrTextContent("Queue Control",
+                "Controls whether render queue is automatically set based on material surface type, or explicitly set by the user.");
+
+            public static readonly GUIContent documentationIcon = EditorGUIUtility.TrIconContent("_Help", $"Open Reference for URP Shaders.");
         }
 
         #endregion
@@ -128,6 +145,7 @@ namespace UnityEditor
         protected MaterialProperty surfaceTypeProp { get; set; }
 
         protected MaterialProperty blendModeProp { get; set; }
+        protected MaterialProperty preserveSpecProp { get; set; }
 
         protected MaterialProperty cullingProp { get; set; }
 
@@ -155,6 +173,8 @@ namespace UnityEditor
 
         protected MaterialProperty queueOffsetProp { get; set; }
 
+        protected MaterialProperty queueControlProp { get; set; }
+
         public bool m_FirstTimeApply = true;
 
         // By default, everything is expanded, except advanced
@@ -163,12 +183,17 @@ namespace UnityEditor
         #endregion
 
         private const int queueOffsetRange = 50;
+
         ////////////////////////////////////
         // General Functions              //
         ////////////////////////////////////
         #region GeneralFunctions
 
-        public abstract void MaterialChanged(Material material);
+        [Obsolete("MaterialChanged has been renamed ValidateMaterial", false)]
+        public virtual void MaterialChanged(Material material)
+        {
+            ValidateMaterial(material);
+        }
 
         public virtual void FindProperties(MaterialProperty[] properties)
         {
@@ -178,6 +203,7 @@ namespace UnityEditor
 
             surfaceTypeProp = FindProperty(Property.SurfaceType, properties, false);
             blendModeProp = FindProperty(Property.BlendMode, properties, false);
+            preserveSpecProp = FindProperty(Property.BlendModePreserveSpecular, properties, false);  // Separate blend for diffuse and specular.
             cullingProp = FindProperty(Property.CullMode, properties, false);
             zwriteProp = FindProperty(Property.ZWriteControl, properties, false);
             ztestProp = FindProperty(Property.ZTest, properties, false);
@@ -185,6 +211,7 @@ namespace UnityEditor
 
             // ShaderGraph Lit and Unlit Subtargets only
             castShadowsProp = FindProperty(Property.CastShadows, properties, false);
+            queueControlProp = FindProperty(Property.QueueControl, properties, false);
 
             // ShaderGraph Lit, and Lit.shader
             receiveShadowsProp = FindProperty(Property.ReceiveShadows, properties, false);
@@ -219,33 +246,29 @@ namespace UnityEditor
             ShaderPropertiesGUI(material);
         }
 
-        void UpdateMaterials(MaterialEditor materialEditor)
-        {
-            foreach (var obj in materialEditor.targets)
-                MaterialChanged((Material)obj);
-        }
+        protected virtual uint materialFilter => uint.MaxValue;
 
         public virtual void OnOpenGUI(Material material, MaterialEditor materialEditor)
         {
+            var filter = (Expandable)materialFilter;
+
             // Generate the foldouts
-            m_MaterialScopeList.RegisterHeaderScope(Styles.SurfaceOptions, (uint)Expandable.SurfaceOptions, DrawSurfaceOptions);
-            m_MaterialScopeList.RegisterHeaderScope(Styles.SurfaceInputs, (uint)Expandable.SurfaceInputs, DrawSurfaceInputs);
+            if (filter.HasFlag(Expandable.SurfaceOptions))
+                m_MaterialScopeList.RegisterHeaderScope(Styles.SurfaceOptions, (uint)Expandable.SurfaceOptions, DrawSurfaceOptions);
 
-            FillAdditionalFoldouts(m_MaterialScopeList);
+            if (filter.HasFlag(Expandable.SurfaceInputs))
+                m_MaterialScopeList.RegisterHeaderScope(Styles.SurfaceInputs, (uint)Expandable.SurfaceInputs, DrawSurfaceInputs);
 
-            m_MaterialScopeList.RegisterHeaderScope(Styles.AdvancedLabel, (uint)Expandable.Advanced, DrawAdvancedOptions);
+            if (filter.HasFlag(Expandable.Details))
+                FillAdditionalFoldouts(m_MaterialScopeList);
 
-            UpdateMaterials(materialEditor);
+            if (filter.HasFlag(Expandable.Advanced))
+                m_MaterialScopeList.RegisterHeaderScope(Styles.AdvancedLabel, (uint)Expandable.Advanced, DrawAdvancedOptions);
         }
 
         public void ShaderPropertiesGUI(Material material)
         {
-            EditorGUI.BeginChangeCheck();
-            {
-                m_MaterialScopeList.DrawHeaders(materialEditor, material);
-                if (EditorGUI.EndChangeCheck())
-                    UpdateMaterials(materialEditor);
-            }
+            m_MaterialScopeList.DrawHeaders(materialEditor, material);
         }
 
         #endregion
@@ -259,37 +282,41 @@ namespace UnityEditor
             if (properties == null)
                 return;
 
-            foreach (var prop in properties)
-            {
-                if ((prop.flags & (MaterialProperty.PropFlags.HideInInspector | MaterialProperty.PropFlags.PerRendererData)) != 0)
-                    continue;
-
-                float h = materialEditor.GetPropertyHeight(prop, prop.displayName);
-                Rect r = EditorGUILayout.GetControlRect(true, h, EditorStyles.layerMaskField);
-
-                materialEditor.ShaderProperty(r, prop, prop.displayName);
-            }
+            ShaderGraphPropertyDrawers.DrawShaderGraphGUI(materialEditor, properties);
         }
 
-        internal static void DrawFloatToggleProperty(GUIContent styles, MaterialProperty prop)
+        internal static void DrawFloatToggleProperty(GUIContent styles, MaterialProperty prop, int indentLevel = 0, bool isDisabled = false)
         {
             if (prop == null)
                 return;
 
+            EditorGUI.BeginDisabledGroup(isDisabled);
+            EditorGUI.indentLevel += indentLevel;
             EditorGUI.BeginChangeCheck();
-            EditorGUI.showMixedValue = prop.hasMixedValue;
+            MaterialEditor.BeginProperty(prop);
             bool newValue = EditorGUILayout.Toggle(styles, prop.floatValue == 1);
             if (EditorGUI.EndChangeCheck())
                 prop.floatValue = newValue ? 1.0f : 0.0f;
-            EditorGUI.showMixedValue = false;
+            MaterialEditor.EndProperty();
+            EditorGUI.indentLevel -= indentLevel;
+            EditorGUI.EndDisabledGroup();
         }
 
         public virtual void DrawSurfaceOptions(Material material)
         {
             DoPopup(Styles.surfaceType, surfaceTypeProp, Styles.surfaceTypeNames);
             if ((surfaceTypeProp != null) && ((SurfaceType)surfaceTypeProp.floatValue == SurfaceType.Transparent))
+            {
                 DoPopup(Styles.blendingMode, blendModeProp, Styles.blendModeNames);
 
+                if (material.HasProperty(Property.BlendModePreserveSpecular))
+                {
+                    BlendMode blendMode = (BlendMode)material.GetFloat(Property.BlendMode);
+                    var isDisabled = blendMode == BlendMode.Multiply || blendMode == BlendMode.Premultiply;
+                    if (!isDisabled)
+                        DrawFloatToggleProperty(Styles.preserveSpecularText, preserveSpecProp, 1, isDisabled);
+                }
+            }
             DoPopup(Styles.cullingText, cullingProp, Styles.renderFaceNames);
             DoPopup(Styles.zwriteText, zwriteProp, Styles.zwriteNames);
 
@@ -312,8 +339,11 @@ namespace UnityEditor
 
         public virtual void DrawAdvancedOptions(Material material)
         {
+            // Only draw the sorting priority field if queue control is set to "auto"
+            bool autoQueueControl = GetAutomaticQueueControlSetting(material);
+            if (autoQueueControl)
+                DrawQueueOffsetField();
             materialEditor.EnableInstancingField();
-            DrawQueueOffsetField();
         }
 
         protected void DrawQueueOffsetField()
@@ -322,7 +352,7 @@ namespace UnityEditor
                 materialEditor.IntSliderShaderProperty(queueOffsetProp, -queueOffsetRange, queueOffsetRange, Styles.queueSlider);
         }
 
-        public virtual void FillAdditionalFoldouts(MaterialHeaderScopeList materialScopesList) {}
+        public virtual void FillAdditionalFoldouts(MaterialHeaderScopeList materialScopesList) { }
 
         public virtual void DrawBaseProperties(Material material)
         {
@@ -332,37 +362,39 @@ namespace UnityEditor
             }
         }
 
+        private void DrawEmissionTextureProperty()
+        {
+            if ((emissionMapProp == null) || (emissionColorProp == null))
+                return;
+
+            using (new EditorGUI.IndentLevelScope(2))
+            {
+                materialEditor.TexturePropertyWithHDRColor(Styles.emissionMap, emissionMapProp, emissionColorProp, false);
+            }
+        }
+
         protected virtual void DrawEmissionProperties(Material material, bool keyword)
         {
             var emissive = true;
-            var hadEmissionTexture = emissionMapProp?.textureValue != null;
 
-            EditorGUI.indentLevel -= 1;
             if (!keyword)
             {
-                if ((emissionMapProp != null) && (emissionColorProp != null))
-                    materialEditor.TexturePropertyWithHDRColor(Styles.emissionMap, emissionMapProp, emissionColorProp, false);
+                DrawEmissionTextureProperty();
             }
             else
             {
-                // Emission for GI?
                 emissive = materialEditor.EmissionEnabledProperty();
-
-                EditorGUI.BeginDisabledGroup(!emissive);
+                using (new EditorGUI.DisabledScope(!emissive))
                 {
-                    // Texture and HDR color controls
-                    if ((emissionMapProp != null) && (emissionColorProp != null))
-                        materialEditor.TexturePropertyWithHDRColor(Styles.emissionMap, emissionMapProp, emissionColorProp, false);
+                    DrawEmissionTextureProperty();
                 }
-                EditorGUI.EndDisabledGroup();
             }
-            EditorGUI.indentLevel += 1;
 
             // If texture was assigned and color was black set color to white
-            float brightness = 1.0f;
             if ((emissionMapProp != null) && (emissionColorProp != null))
             {
-                brightness = emissionColorProp.colorValue.maxColorComponent;
+                var hadEmissionTexture = emissionMapProp?.textureValue != null;
+                var brightness = emissionColorProp.colorValue.maxColorComponent;
                 if (emissionMapProp.textureValue != null && !hadEmissionTexture && brightness <= 0f)
                     emissionColorProp.colorValue = Color.white;
             }
@@ -443,6 +475,49 @@ namespace UnityEditor
                 CoreUtils.SetKeyword(material, ShaderKeywordStrings._RECEIVE_SHADOWS_OFF, material.GetFloat(Property.ReceiveShadows) == 0.0f);
         }
 
+        // this function is shared between ShaderGraph and hand-written GUIs
+        internal static void UpdateMaterialRenderQueueControl(Material material)
+        {
+            //
+            // Render Queue Control handling
+            //
+            // Check for a raw render queue (the actual serialized setting - material.renderQueue has already been converted)
+            // setting of -1, indicating that the material property should be inherited from the shader.
+            // If we find this, add a new property "render queue control" set to 0 so we will
+            // always know to follow the surface type of the material (this matches the hand-written behavior)
+            // If we find another value, add the the property set to 1 so we will know that the
+            // user has explicitly selected a render queue and we should not override it.
+            //
+            bool isShaderGraph = material.IsShaderGraph(); // Non-shadergraph materials use automatic behavior
+            int rawRenderQueue = MaterialAccess.ReadMaterialRawRenderQueue(material);
+            if (!isShaderGraph || rawRenderQueue == -1)
+            {
+                material.SetFloat(Property.QueueControl, (float)QueueControl.Auto); // Automatic behavior - surface type override
+            }
+            else
+            {
+                material.SetFloat(Property.QueueControl, (float)QueueControl.UserOverride); // User has selected explicit render queue
+            }
+        }
+
+        internal static bool GetAutomaticQueueControlSetting(Material material)
+        {
+            // If a Shader Graph material doesn't yet have the queue control property,
+            // we should not engage automatic behavior until the shader gets reimported.
+            bool automaticQueueControl = !material.IsShaderGraph();
+            if (material.HasProperty(Property.QueueControl))
+            {
+                var queueControl = material.GetFloat(Property.QueueControl);
+                if (queueControl < 0.0f)
+                {
+                    // The property was added with a negative value, indicating it needs to be validated for this material
+                    UpdateMaterialRenderQueueControl(material);
+                }
+                automaticQueueControl = (material.GetFloat(Property.QueueControl) == (float)QueueControl.Auto);
+            }
+            return automaticQueueControl;
+        }
+
         // this is the function used by Lit.shader, Unlit.shader GUIs
         public static void SetMaterialKeywords(Material material, Action<Material> shadingModelFunc = null, Action<Material> shaderFunc = null)
         {
@@ -450,11 +525,7 @@ namespace UnityEditor
 
             // Setup double sided GI based on Cull state
             if (material.HasProperty(Property.CullMode))
-            {
-                bool doubleSidedGI = (RenderFace)material.GetFloat(Property.CullMode) != RenderFace.Front;
-                if (doubleSidedGI != material.doubleSidedGI)
-                    material.doubleSidedGI = doubleSidedGI;
-            }
+                material.doubleSidedGI = (RenderFace)material.GetFloat(Property.CullMode) != RenderFace.Front;
 
             // Temporary fix for lightmapping. TODO: to be replaced with attribute tag.
             if (material.HasProperty("_MainTex"))
@@ -496,6 +567,27 @@ namespace UnityEditor
 
             if (material.HasProperty(Property.DstBlend))
                 material.SetFloat(Property.DstBlend, (float)dstBlend);
+
+            if (material.HasProperty(Property.SrcBlendAlpha))
+                material.SetFloat(Property.SrcBlendAlpha, (float)srcBlend);
+
+            if (material.HasProperty(Property.DstBlendAlpha))
+                material.SetFloat(Property.DstBlendAlpha, (float)dstBlend);
+        }
+
+        internal static void SetMaterialSrcDstBlendProperties(Material material, UnityEngine.Rendering.BlendMode srcBlendRGB, UnityEngine.Rendering.BlendMode dstBlendRGB, UnityEngine.Rendering.BlendMode srcBlendAlpha, UnityEngine.Rendering.BlendMode dstBlendAlpha)
+        {
+            if (material.HasProperty(Property.SrcBlend))
+                material.SetFloat(Property.SrcBlend, (float)srcBlendRGB);
+
+            if (material.HasProperty(Property.DstBlend))
+                material.SetFloat(Property.DstBlend, (float)dstBlendRGB);
+
+            if (material.HasProperty(Property.SrcBlendAlpha))
+                material.SetFloat(Property.SrcBlendAlpha, (float)srcBlendAlpha);
+
+            if (material.HasProperty(Property.DstBlendAlpha))
+                material.SetFloat(Property.DstBlendAlpha, (float)dstBlendAlpha);
         }
 
         internal static void SetMaterialZWriteProperty(Material material, bool zwriteEnabled)
@@ -539,40 +631,85 @@ namespace UnityEditor
                     zwrite = true;
                     material.DisableKeyword(ShaderKeywordStrings._ALPHAPREMULTIPLY_ON);
                     material.DisableKeyword(ShaderKeywordStrings._SURFACE_TYPE_TRANSPARENT);
+                    material.DisableKeyword(ShaderKeywordStrings._ALPHAMODULATE_ON);
                 }
                 else // SurfaceType Transparent
                 {
                     BlendMode blendMode = (BlendMode)material.GetFloat(Property.BlendMode);
 
+                    // Clear blend keyword state.
+                    material.DisableKeyword(ShaderKeywordStrings._ALPHAPREMULTIPLY_ON);
+                    material.DisableKeyword(ShaderKeywordStrings._ALPHAMODULATE_ON);
+
+                    var srcBlendRGB = UnityEngine.Rendering.BlendMode.One;
+                    var dstBlendRGB = UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha;
+                    var srcBlendA = UnityEngine.Rendering.BlendMode.One;
+                    var dstBlendA = UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha;
+
                     // Specific Transparent Mode Settings
                     switch (blendMode)
                     {
+                        // srcRGB * srcAlpha + dstRGB * (1 - srcAlpha)
+                        // preserve spec:
+                        // srcRGB * (<in shader> ? 1 : srcAlpha) + dstRGB * (1 - srcAlpha)
                         case BlendMode.Alpha:
-                            SetMaterialSrcDstBlendProperties(material,
-                                UnityEngine.Rendering.BlendMode.SrcAlpha,
-                                UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                            material.DisableKeyword(ShaderKeywordStrings._ALPHAPREMULTIPLY_ON);
+                            srcBlendRGB = UnityEngine.Rendering.BlendMode.SrcAlpha;
+                            dstBlendRGB = UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha;
+                            srcBlendA = UnityEngine.Rendering.BlendMode.One;
+                            dstBlendA = dstBlendRGB;
                             break;
+
+                        // srcRGB < srcAlpha, (alpha multiplied in asset)
+                        // srcRGB * 1 + dstRGB * (1 - srcAlpha)
                         case BlendMode.Premultiply:
-                            SetMaterialSrcDstBlendProperties(material,
-                                UnityEngine.Rendering.BlendMode.One,
-                                UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                            material.EnableKeyword(ShaderKeywordStrings._ALPHAPREMULTIPLY_ON);
+                            srcBlendRGB = UnityEngine.Rendering.BlendMode.One;
+                            dstBlendRGB = UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha;
+                            srcBlendA = srcBlendRGB;
+                            dstBlendA = dstBlendRGB;
                             break;
+
+                        // srcRGB * srcAlpha + dstRGB * 1, (alpha controls amount of addition)
+                        // preserve spec:
+                        // srcRGB * (<in shader> ? 1 : srcAlpha) + dstRGB * (1 - srcAlpha)
                         case BlendMode.Additive:
-                            SetMaterialSrcDstBlendProperties(material,
-                                UnityEngine.Rendering.BlendMode.SrcAlpha,
-                                UnityEngine.Rendering.BlendMode.One);
-                            material.DisableKeyword(ShaderKeywordStrings._ALPHAPREMULTIPLY_ON);
+                            srcBlendRGB = UnityEngine.Rendering.BlendMode.SrcAlpha;
+                            dstBlendRGB = UnityEngine.Rendering.BlendMode.One;
+                            srcBlendA = UnityEngine.Rendering.BlendMode.One;
+                            dstBlendA = dstBlendRGB;
                             break;
+
+                        // srcRGB * 0 + dstRGB * srcRGB
+                        // in shader alpha controls amount of multiplication, lerp(1, srcRGB, srcAlpha)
+                        // Multiply affects color only, keep existing alpha.
                         case BlendMode.Multiply:
-                            SetMaterialSrcDstBlendProperties(material,
-                                UnityEngine.Rendering.BlendMode.DstColor,
-                                UnityEngine.Rendering.BlendMode.Zero);
-                            material.DisableKeyword(ShaderKeywordStrings._ALPHAPREMULTIPLY_ON);
+                            srcBlendRGB = UnityEngine.Rendering.BlendMode.DstColor;
+                            dstBlendRGB = UnityEngine.Rendering.BlendMode.Zero;
+                            srcBlendA = UnityEngine.Rendering.BlendMode.Zero;
+                            dstBlendA = UnityEngine.Rendering.BlendMode.One;
+
                             material.EnableKeyword(ShaderKeywordStrings._ALPHAMODULATE_ON);
                             break;
                     }
+
+                    // Lift alpha multiply from ROP to shader by setting pre-multiplied _SrcBlend mode.
+                    // The intent is to do different blending for diffuse and specular in shader.
+                    // ref: http://advances.realtimerendering.com/other/2016/naughty_dog/NaughtyDog_TechArt_Final.pdf
+                    bool preserveSpecular = (material.HasProperty(Property.BlendModePreserveSpecular) &&
+                                             material.GetFloat(Property.BlendModePreserveSpecular) > 0) &&
+                                            blendMode != BlendMode.Multiply && blendMode != BlendMode.Premultiply;
+                    if (preserveSpecular)
+                    {
+                        srcBlendRGB = UnityEngine.Rendering.BlendMode.One;
+                        material.EnableKeyword(ShaderKeywordStrings._ALPHAPREMULTIPLY_ON);
+                    }
+
+                    // When doing off-screen transparency accumulation, we change blend factors as described here: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch23.html
+                    bool offScreenAccumulateAlpha = false;
+                    if (offScreenAccumulateAlpha)
+                        srcBlendA = UnityEngine.Rendering.BlendMode.Zero;
+
+                    SetMaterialSrcDstBlendProperties(material, srcBlendRGB, dstBlendRGB, // RGB
+                        srcBlendA, dstBlendA); // Alpha
 
                     // General Transparent Material Settings
                     material.SetOverrideTag("RenderType", "Transparent");
@@ -639,6 +776,9 @@ namespace UnityEditor
         {
             const int kInterFieldPadding = 2;
 
+            MaterialEditor.BeginProperty(prop1);
+            MaterialEditor.BeginProperty(prop2);
+
             Rect rect = EditorGUILayout.GetControlRect();
             EditorGUI.PrefixLabel(rect, title);
 
@@ -667,6 +807,9 @@ namespace UnityEditor
             EditorGUIUtility.labelWidth = preLabelWidth;
 
             EditorGUI.showMixedValue = false;
+
+            MaterialEditor.EndProperty();
+            MaterialEditor.EndProperty();
         }
 
         public void DoPopup(GUIContent label, MaterialProperty property, string[] options)
@@ -678,6 +821,10 @@ namespace UnityEditor
         // Helper to show texture and color properties
         public static Rect TextureColorProps(MaterialEditor materialEditor, GUIContent label, MaterialProperty textureProp, MaterialProperty colorProp, bool hdr = false)
         {
+            MaterialEditor.BeginProperty(textureProp);
+            if (colorProp != null)
+                MaterialEditor.BeginProperty(colorProp);
+
             Rect rect = EditorGUILayout.GetControlRect();
             EditorGUI.showMixedValue = textureProp.hasMixedValue;
             materialEditor.TexturePropertyMiniThumbnail(rect, textureProp, label.text, label.tooltip);
@@ -701,6 +848,10 @@ namespace UnityEditor
                 }
                 EditorGUI.showMixedValue = false;
             }
+
+            if (colorProp != null)
+                MaterialEditor.EndProperty();
+            MaterialEditor.EndProperty();
 
             return rect;
         }

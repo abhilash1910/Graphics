@@ -112,6 +112,7 @@ namespace UnityEditor.ShaderGraph
                 {
                     StructFields.Varyings.positionCS,
                     StructFields.Varyings.positionWS,
+                    StructFields.Varyings.positionPredisplacementWS,
                     StructFields.Varyings.normalWS,
                     StructFields.Varyings.tangentWS,
                     StructFields.Varyings.texCoord0,
@@ -119,7 +120,6 @@ namespace UnityEditor.ShaderGraph
                     StructFields.Varyings.texCoord2,
                     StructFields.Varyings.texCoord3,
                     StructFields.Varyings.color,
-                    StructFields.Varyings.viewDirectionWS,
                     StructFields.Varyings.screenPosition,
                     StructFields.Varyings.instanceID,
                     StructFields.Varyings.vertexID,

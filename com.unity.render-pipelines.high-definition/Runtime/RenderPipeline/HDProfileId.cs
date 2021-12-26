@@ -76,7 +76,6 @@ namespace UnityEngine.Rendering.HighDefinition
 
         UpdateSkyEnvironmentConvolution,
         RenderSkyToCubemap,
-        UpdateSkyEnvironment,
         UpdateSkyAmbientProbe,
         PreRenderSky,
         RenderSky,
@@ -90,18 +89,30 @@ namespace UnityEngine.Rendering.HighDefinition
         PrepareVisibleLocalVolumetricFogList,
         UpdateLocalVolumetricFogAtlas,
 
+        // Volumetric clouds
         VolumetricClouds,
         VolumetricCloudsPrepare,
         VolumetricCloudsTrace,
         VolumetricCloudsReproject,
+        VolumetricCloudsPreUpscale,
         VolumetricCloudsUpscaleAndCombine,
         VolumetricCloudsShadow,
         VolumetricCloudMapGeneration,
+        VolumetricCloudsAmbientProbe,
+
+        // Water surface
+        WaterSurfaceSimulation,
+        WaterSurfaceRenderingGBuffer,
+        WaterSurfaceRenderingSSR,
+        WaterSurfaceRenderingDeferred,
 
         // RT Cluster
         RaytracingBuildCluster,
         RaytracingCullLights,
         RaytracingDebugCluster,
+        // RT acceleration structure setup
+        RaytracingBuildAccelerationStructure,
+        RaytracingBuildAccelerationStructureDebug,
         // RTR
         RaytracingReflectionDirectionGeneration,
         RaytracingReflectionEvaluation,
@@ -141,7 +152,20 @@ namespace UnityEngine.Rendering.HighDefinition
         TemporalFilter,
         DiffuseFilter,
 
+        UpdateGlobalConstantBuffers,
+        UpdateEnvironment,
+        ConfigureKeywords,
+        RecordRenderGraph,
+
         PrepareLightsForGPU,
+        PrepareGPULightdata,
+        PrepareGPUProbeData,
+        ConvertLightsGpuFormat,
+        ProcessVisibleLights,
+        ProcessDirectionalAndCookies,
+        SortVisibleLights,
+        BuildVisibleLightEntities,
+        ProcessShadows,
 
         // Profile sampler for shadow
         RenderShadowMaps,
@@ -149,6 +173,7 @@ namespace UnityEngine.Rendering.HighDefinition
         RenderEVSMShadowMaps,
         RenderEVSMShadowMapsBlur,
         RenderEVSMShadowMapsCopyToAtlas,
+        BlitDirectionalMixedCachedShadowMaps,
         BlitPunctualMixedCachedShadowMaps,
         BlitAreaMixedCachedShadowMaps,
 
@@ -164,6 +189,7 @@ namespace UnityEngine.Rendering.HighDefinition
         // Misc
         VolumeUpdate,
         CustomPassVolumeUpdate,
+        OffscreenUIRendering,
 
         // XR
         XRMirrorView,
@@ -182,6 +208,7 @@ namespace UnityEngine.Rendering.HighDefinition
         DynamicExposure,
         ApplyExposure,
         TemporalAntialiasing,
+        DeepLearningSuperSamplingColorMask,
         DeepLearningSuperSampling,
         DepthOfField,
         DepthOfFieldKernel,
@@ -195,6 +222,8 @@ namespace UnityEngine.Rendering.HighDefinition
         DepthOfFieldPreCombine,
         DepthOfFieldCombine,
         LensFlareDataDriven,
+        LensFlareComputeOcclusionDataDriven,
+        LensFlareMergeOcclusionDataDriven,
         MotionBlur,
         MotionBlurMotionVecPrep,
         MotionBlurTileMinMax,
@@ -211,11 +240,14 @@ namespace UnityEngine.Rendering.HighDefinition
         SetResolutionGroup,
         FinalPost,
         FinalImageHistogram,
+        HDRDebugData,
         CustomPostProcessBeforeTAA,
         CustomPostProcessBeforePP,
+        CustomPostProcessAfterPPBlurs,
         CustomPostProcessAfterPP,
         CustomPostProcessAfterOpaqueAndSky,
         ContrastAdaptiveSharpen,
+        EdgeAdaptiveSpatialUpsampling,
         PrepareProbeVolumeList,
         ProbeVolumeDebug,
 

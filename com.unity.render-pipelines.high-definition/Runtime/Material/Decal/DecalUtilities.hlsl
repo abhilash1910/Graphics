@@ -144,7 +144,8 @@ void EvalDecalMask( PositionInputs posInput, float3 vtxNormal, float3 positionRW
         // Normal
         if (affectFlags & 2)
         {
-            float3 normalTS;
+            float4 src = float4(0.0, 0.0, 0.0, 0.0);
+            float3 normalTS = float3(0.0, 0.0, 1.0);
 
             // We use scaleBias value to now if we have init a texture. 0 mean a texture is bound
             bool normalTextureBound = (decalData.normalScaleBias.x > 0) && (decalData.normalScaleBias.y > 0);
@@ -160,15 +161,21 @@ void EvalDecalMask( PositionInputs posInput, float3 vtxNormal, float3 positionRW
                 #if defined(SHADEROPTIONS_GLOBAL_MIP_BIAS) && SHADEROPTIONS_GLOBAL_MIP_BIAS != 0
                 lodNormal += _GlobalMipBias;
                 #endif
+
+                #ifdef DECAL_SURFACE_GRADIENT
+                float3x3 tangentToWorld = transpose((float3x3)decalData.normalToWorld);
+                float2 deriv = UnpackDerivativeNormalRGorAG(SAMPLE_TEXTURE2D_LOD(_DecalAtlas2D, _trilinear_clamp_sampler_DecalAtlas2D, sampleNormal, lodNormal));
+                src.xyz = SurfaceGradientFromTBN(deriv, tangentToWorld[0], tangentToWorld[1]);
+                #else
                 normalTS = UnpackNormalmapRGorAG(SAMPLE_TEXTURE2D_LOD(_DecalAtlas2D, _trilinear_clamp_sampler_DecalAtlas2D, sampleNormal, lodNormal));
-            }
-            else
-            {
-                normalTS = float3(0.0, 0.0, 1.0);
+                #endif
             }
 
-            float4 src;
-            src.xyz = mul((float3x3)decalData.normalToWorld, normalTS) * 0.5 + 0.5; // The " * 0.5 + 0.5" mimic what is happening when calling EncodeIntoDBuffer()
+            #ifndef DECAL_SURFACE_GRADIENT
+            src.xyz = mul((float3x3)decalData.normalToWorld, normalTS);
+            #endif
+
+            src.xyz = src.xyz * 0.5 + 0.5; // Mimic what is happening when calling EncodeIntoDBuffer()
             src.w = (decalData.blendParams.x == 1.0) ? maskMapBlend : albedoMapBlend;
 
             // Accumulate in dbuffer (mimic what ROP are doing)
@@ -178,7 +185,7 @@ void EvalDecalMask( PositionInputs posInput, float3 vtxNormal, float3 positionRW
     }
 }
 
-#if defined(_SURFACE_TYPE_TRANSPARENT) && defined(HAS_LIGHTLOOP) // forward transparent using clustered decals
+#if (defined(_SURFACE_TYPE_TRANSPARENT) && defined(HAS_LIGHTLOOP)) || defined(WATER_SURFACE_GBUFFER) // forward transparent using clustered decals
 DecalData FetchDecal(uint start, uint i)
 {
 #ifndef LIGHTLOOP_DISABLE_TILE_AND_CLUSTER
@@ -195,9 +202,9 @@ DecalData FetchDecal(uint index)
 }
 #endif
 
-DecalSurfaceData GetDecalSurfaceData(PositionInputs posInput, float3 vtxNormal, inout float alpha)
+DecalSurfaceData GetDecalSurfaceData(PositionInputs posInput, float3 vtxNormal, uint meshRenderingDecalLayer, inout float alpha)
 {
-#if defined(_SURFACE_TYPE_TRANSPARENT) && defined(HAS_LIGHTLOOP)  // forward transparent using clustered decals
+#if (defined(_SURFACE_TYPE_TRANSPARENT) && defined(HAS_LIGHTLOOP)) || defined(WATER_SURFACE_GBUFFER)  // forward transparent and deferred water use clustered decals
     uint decalCount, decalStart;
     DBufferType0 DBuffer0 = float4(0.0, 0.0, 0.0, 1.0);
     DBufferType1 DBuffer1 = float4(0.5, 0.5, 0.5, 1.0);
@@ -226,8 +233,6 @@ DecalSurfaceData GetDecalSurfaceData(PositionInputs posInput, float3 vtxNormal, 
     float3 positionRWSDdx = ddx(positionRWS);
     float3 positionRWSDdy = ddy(positionRWS);
 
-    uint decalLayerMask = GetMeshRenderingDecalLayer();
-
     // Scalarized loop. All decals that are in a tile/cluster touched by any pixel in the wave are loaded (scalar load), only the ones relevant to current thread/pixel are processed.
     // For clarity, the following code will follow the convention: variables starting with s_ are wave uniform (meant for scalar register),
     // v_ are variables that might have different value for each thread in the wave (meant for vector registers).
@@ -248,7 +253,7 @@ DecalSurfaceData GetDecalSurfaceData(PositionInputs posInput, float3 vtxNormal, 
             break;
 
         DecalData s_decalData = FetchDecal(s_decalIdx);
-        bool isRejected = (s_decalData.decalLayerMask & decalLayerMask) == 0;
+        bool isRejected = (s_decalData.decalLayerMask & meshRenderingDecalLayer) == 0;
 
         // If current scalar and vector decal index match, we process the decal. The v_decalListOffset for current thread is increased.
         // Note that the following should really be ==, however, since helper lanes are not considered by WaveActiveMin, such helper lanes could
@@ -268,20 +273,33 @@ DecalSurfaceData GetDecalSurfaceData(PositionInputs posInput, float3 vtxNormal, 
     DecalSurfaceData decalSurfaceData;
     DECODE_FROM_DBUFFER(DBuffer, decalSurfaceData);
 
+#if defined(DECAL_SURFACE_GRADIENT) && !defined(SURFACE_GRADIENT)
+    // The caller doesn't expect a surface gradient but our dbuffer has volume gradients accumulated in it.
+    // Make sure we return some sensible normal by first removing any colinear component (to the vertex normal)
+    // of the volume gradient before resolving it: ie convert the volume gradient to a proper surface gradient wrt vtxNormal:
+    float3 surfGrad = SurfaceGradientFromVolumeGradient(vtxNormal, decalSurfaceData.normalWS.xyz);
+    decalSurfaceData.normalWS.xyz = SurfaceGradientResolveNormal(vtxNormal, surfGrad);
+#endif
+
+    return decalSurfaceData;
+}
+
+DecalSurfaceData GetDecalSurfaceData(PositionInputs posInput, FragInputs input, uint decalLayer, inout float alpha)
+{
+    float3 vtxNormal = input.tangentToWorld[2];
+    DecalSurfaceData decalSurfaceData = GetDecalSurfaceData(posInput, vtxNormal, decalLayer, alpha);
+
+#if (!defined(DECAL_SURFACE_GRADIENT) || !defined(SURFACE_GRADIENT)) && defined(_DOUBLESIDED_ON)
+    // 'doubleSidedConstants' is float3(-1, -1, -1) in flip mode and float3(1, 1, -1) in mirror mode.
+    // It's float3(1, 1, 1) in the none mode.
+    float flipSign = input.isFrontFace ? 1.0 : _DoubleSidedConstants.x;
+    decalSurfaceData.normalWS.xy *= flipSign;
+#endif
+
     return decalSurfaceData;
 }
 
 DecalSurfaceData GetDecalSurfaceData(PositionInputs posInput, FragInputs input, inout float alpha)
 {
-    float3 vtxNormal = input.tangentToWorld[2];
-    DecalSurfaceData decalSurfaceData = GetDecalSurfaceData(posInput, vtxNormal, alpha);
-
-#ifdef _DOUBLESIDED_ON
-    // 'doubleSidedConstants' is float3(-1, -1, -1) in flip mode and float3(1, 1, -1) in mirror mode.
-    // It's float3(1, 1, 1) in the none mode.
-    float3 flipSign = input.isFrontFace ? float3(1.0, 1.0, 1.0) : _DoubleSidedConstants.xyz;
-    decalSurfaceData.normalWS.xyz *= flipSign;
-#endif // _DOUBLESIDED_ON
-
-    return decalSurfaceData;
+    return GetDecalSurfaceData(posInput, input, GetMeshRenderingDecalLayer(), alpha);
 }

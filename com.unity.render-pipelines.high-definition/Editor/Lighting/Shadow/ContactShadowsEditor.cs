@@ -4,7 +4,7 @@ using UnityEngine.Rendering.HighDefinition;
 namespace UnityEditor.Rendering.HighDefinition
 {
     [CanEditMultipleObjects]
-    [VolumeComponentEditor(typeof(ContactShadows))]
+    [CustomEditor(typeof(ContactShadows))]
     class ContactShadowsEditor : VolumeComponentWithQualityEditor
     {
         SerializedDataParameter m_Enable;
@@ -58,7 +58,7 @@ namespace UnityEditor.Rendering.HighDefinition
 
                 base.OnInspectorGUI();
 
-                using (new HDEditorUtils.IndentScope())
+                using (new IndentLevelScope())
                 using (new QualityScope(this))
                 {
                     PropertyField(m_SampleCount, EditorGUIUtility.TrTextContent("Sample Count", "Controls the number of samples HDRP uses for ray casting."));

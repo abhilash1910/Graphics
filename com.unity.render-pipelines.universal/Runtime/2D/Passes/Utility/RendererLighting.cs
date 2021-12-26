@@ -84,9 +84,7 @@ namespace UnityEngine.Rendering.Universal
             if (renderScale != pass.rendererData.normalsRenderTargetScale)
             {
                 if (pass.rendererData.isNormalsRenderTargetValid)
-                {
-                    cmd.ReleaseTemporaryRT(pass.rendererData.normalsRenderTarget.id);
-                }
+                    cmd.ReleaseTemporaryRT(pass.rendererData.normalsRenderTargetId);
 
                 pass.rendererData.isNormalsRenderTargetValid = true;
                 pass.rendererData.normalsRenderTargetScale = renderScale;
@@ -98,11 +96,11 @@ namespace UnityEngine.Rendering.Universal
                 descriptor.graphicsFormat = GetRenderTextureFormat();
                 descriptor.useMipMap = false;
                 descriptor.autoGenerateMips = false;
-                descriptor.depthBufferBits = 0;
+                descriptor.depthBufferBits = pass.rendererData.useDepthStencilBuffer ? 32 : 0;
                 descriptor.msaaSamples = renderingData.cameraData.cameraTargetDescriptor.msaaSamples;
                 descriptor.dimension = TextureDimension.Tex2D;
 
-                cmd.GetTemporaryRT(pass.rendererData.normalsRenderTarget.id, descriptor, FilterMode.Bilinear);
+                cmd.GetTemporaryRT(pass.rendererData.normalsRenderTargetId, descriptor, FilterMode.Bilinear);
             }
         }
 
@@ -142,7 +140,7 @@ namespace UnityEngine.Rendering.Universal
             descriptor.msaaSamples = 1;
             descriptor.dimension = TextureDimension.Tex2D;
 
-            cmd.GetTemporaryRT(pass.rendererData.cameraSortingLayerRenderTarget.id, descriptor, FilterMode.Bilinear);
+            cmd.GetTemporaryRT(pass.rendererData.cameraSortingLayerRenderTargetId, descriptor, FilterMode.Bilinear);
         }
 
         public static void EnableBlendStyle(CommandBuffer cmd, int blendStyleIndex, bool enabled)
@@ -167,9 +165,10 @@ namespace UnityEngine.Rendering.Universal
         {
             pass.rendererData.isNormalsRenderTargetValid = false;
             pass.rendererData.normalsRenderTargetScale = 0.0f;
-            cmd.ReleaseTemporaryRT(pass.rendererData.normalsRenderTarget.id);
-            cmd.ReleaseTemporaryRT(pass.rendererData.shadowsRenderTarget.id);
-            cmd.ReleaseTemporaryRT(pass.rendererData.cameraSortingLayerRenderTarget.id);
+            cmd.ReleaseTemporaryRT(pass.rendererData.normalsRenderTargetId);
+            cmd.ReleaseTemporaryRT(pass.rendererData.shadowsRenderTargetId);
+            if (pass.rendererData.cameraSortingLayerRenderTarget != null)
+                cmd.ReleaseTemporaryRT(pass.rendererData.cameraSortingLayerRenderTargetId);
         }
 
         public static void DrawPointLight(CommandBuffer cmd, Light2D light, Mesh lightMesh, Material material)
@@ -211,6 +210,7 @@ namespace UnityEngine.Rendering.Universal
                     }
                     batchedLights++;
                 }
+
 
                 // Set the current RT to the light RT
                 if (shadowLightCount > 0 || requiresRTInit)
@@ -313,7 +313,9 @@ namespace UnityEngine.Rendering.Universal
                 while (batchedLights < remainingLights && shadowLightCount < maxShadowLightCount)
                 {
                     var light = lights[lightIndex + batchedLights];
-                    if (light.renderVolumetricShadows)
+
+                    var topMostLayerValue = light.GetTopMostLitLayer();
+                    if (light.renderVolumetricShadows && endLayerValue == topMostLayerValue)
                     {
                         ShadowRendering.PrerenderShadows(pass, renderingData, cmd, layerToRender, light, shadowLightCount, light.shadowVolumeIntensity);
                         shadowLightCount++;
@@ -471,8 +473,7 @@ namespace UnityEngine.Rendering.Universal
                 if (!pass.rendererData.lightBlendStyles[i].isDirty)
                     continue;
 
-                cmd.SetRenderTarget(pass.rendererData.lightBlendStyles[i].renderTargetHandle.Identifier());
-                cmd.ClearRenderTarget(false, true, Color.black);
+                CoreUtils.SetRenderTarget(cmd, pass.rendererData.lightBlendStyles[i].renderTargetHandle, ClearFlag.Color, Color.black);
                 pass.rendererData.lightBlendStyles[i].isDirty = false;
             }
         }
@@ -494,20 +495,16 @@ namespace UnityEngine.Rendering.Universal
 
                 var msaaEnabled = renderingData.cameraData.cameraTargetDescriptor.msaaSamples > 1;
                 var storeAction = msaaEnabled ? RenderBufferStoreAction.Resolve : RenderBufferStoreAction.Store;
+                var clearFlag = pass.rendererData.useDepthStencilBuffer ? ClearFlag.All : ClearFlag.Color;
                 if (depthTarget != BuiltinRenderTextureType.None)
                 {
-                    cmd.SetRenderTarget(
-                        pass.rendererData.normalsRenderTarget.Identifier(),
-                        RenderBufferLoadAction.DontCare,
-                        storeAction,
-                        depthTarget,
-                        RenderBufferLoadAction.Load,
-                        RenderBufferStoreAction.Store);
+                    CoreUtils.SetRenderTarget(cmd,
+                        pass.rendererData.normalsRenderTarget, RenderBufferLoadAction.DontCare, storeAction,
+                        depthTarget, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store,
+                        clearFlag, k_NormalClearColor);
                 }
                 else
-                    cmd.SetRenderTarget(pass.rendererData.normalsRenderTarget.Identifier(), RenderBufferLoadAction.DontCare, storeAction);
-
-                cmd.ClearRenderTarget(false, true, k_NormalClearColor);
+                    CoreUtils.SetRenderTarget(cmd, pass.rendererData.normalsRenderTarget, RenderBufferLoadAction.DontCare, storeAction, clearFlag, k_NormalClearColor);
 
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
@@ -519,6 +516,16 @@ namespace UnityEngine.Rendering.Universal
 
         public static void RenderLights(this IRenderPass2D pass, RenderingData renderingData, CommandBuffer cmd, int layerToRender, ref LayerBatch layerBatch, ref RenderTextureDescriptor rtDesc)
         {
+            // Before rendering the lights cache some values that are expensive to get/calculate
+            var culledLights = pass.rendererData.lightCullResult.visibleLights;
+            for (var i = 0; i < culledLights.Count; i++)
+            {
+                culledLights[i].CacheValues();
+            }
+
+            ShadowCasterGroup2DManager.CacheValues();
+
+
             var blendStyles = pass.rendererData.lightBlendStyles;
 
             for (var i = 0; i < blendStyles.Length; ++i)

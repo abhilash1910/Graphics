@@ -1,13 +1,16 @@
-using UnityEngine;
-using System.Linq;
-using UnityEngine.Rendering.Universal;
 using System.Collections.Generic;
+using UnityEngine.Rendering.Universal;
 
 namespace UnityEditor.Rendering.Universal
 {
-    class SerializedUniversalRenderPipelineGlobalSettings
+    class SerializedUniversalRenderPipelineGlobalSettings : ISerializedRenderPipelineGlobalSettings
     {
-        public SerializedObject serializedObject;
+        #region ISerializedRenderPipelineGlobalSettings
+        public SerializedObject serializedObject { get; }
+        public SerializedProperty shaderVariantLogLevel { get; }
+        public SerializedProperty exportShaderVariants { get; }
+        #endregion
+
         private List<UniversalRenderPipelineGlobalSettings> serializedSettings = new List<UniversalRenderPipelineGlobalSettings>();
 
         public SerializedProperty lightLayerName0;
@@ -18,6 +21,10 @@ namespace UnityEditor.Rendering.Universal
         public SerializedProperty lightLayerName5;
         public SerializedProperty lightLayerName6;
         public SerializedProperty lightLayerName7;
+
+        public SerializedProperty stripDebugVariants;
+        public SerializedProperty stripUnusedPostProcessingVariants;
+        public SerializedProperty stripUnusedVariants;
 
         public SerializedUniversalRenderPipelineGlobalSettings(SerializedObject serializedObject)
         {
@@ -41,6 +48,12 @@ namespace UnityEditor.Rendering.Universal
             lightLayerName5 = serializedObject.Find((UniversalRenderPipelineGlobalSettings s) => s.lightLayerName5);
             lightLayerName6 = serializedObject.Find((UniversalRenderPipelineGlobalSettings s) => s.lightLayerName6);
             lightLayerName7 = serializedObject.Find((UniversalRenderPipelineGlobalSettings s) => s.lightLayerName7);
+
+            stripDebugVariants = serializedObject.FindProperty("m_StripDebugVariants");
+            stripUnusedPostProcessingVariants = serializedObject.FindProperty("m_StripUnusedPostProcessingVariants");
+            stripUnusedVariants = serializedObject.FindProperty("m_StripUnusedVariants");
+            shaderVariantLogLevel = serializedObject.FindProperty("m_ShaderVariantLogLevel");
+            exportShaderVariants = serializedObject.FindProperty("m_ExportShaderVariants");
         }
     }
 }

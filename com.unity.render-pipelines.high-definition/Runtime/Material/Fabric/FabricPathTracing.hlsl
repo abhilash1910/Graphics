@@ -52,7 +52,8 @@ bool CreateMaterialData(PathIntersection pathIntersection, BuiltinData builtinDa
             0.1 * Luminance(mtlData.bsdfData.fresnel0) : Luminance(F_Schlick(mtlData.bsdfData.fresnel0, NdotV));
     }
 
-    if (HasFlag(mtlData.bsdfData.materialFeatures, MATERIALFEATUREFLAGS_FABRIC_TRANSMISSION))
+    bool hasTransmission = HasFlag(mtlData.bsdfData.materialFeatures, MATERIALFEATUREFLAGS_FABRIC_TRANSMISSION);
+    if (hasTransmission)
         mtlData.bsdfWeight[2] = mtlData.bsdfWeight[0] * Luminance(mtlData.bsdfData.transmittance);
 
     // Normalize the weights
@@ -77,7 +78,7 @@ bool CreateMaterialData(PathIntersection pathIntersection, BuiltinData builtinDa
             SSS::Result subsurfaceResult;
             float3 meanFreePath = 0.001 / (_ShapeParamsAndMaxScatterDists[mtlData.bsdfData.diffusionProfileIndex].rgb * _WorldScalesAndFilterRadiiAndThicknessRemaps[mtlData.bsdfData.diffusionProfileIndex].x);
 
-            if (!SSS::RandomWalk(shadingPosition, GetDiffuseNormal(mtlData), mtlData.bsdfData.diffuseColor, meanFreePath, pathIntersection.pixelCoord, subsurfaceResult))
+            if (!SSS::RandomWalk(shadingPosition, GetDiffuseNormal(mtlData), mtlData.bsdfData.diffuseColor, meanFreePath, pathIntersection.pixelCoord, subsurfaceResult, hasTransmission))
                 return false;
 
             shadingPosition = subsurfaceResult.exitPosition;
@@ -111,7 +112,7 @@ bool SampleMaterial(MaterialData mtlData, float3 inputSample, out float3 sampleD
     {
         if (mtlData.isSubsurface)
         {
-            if (!BRDF::SampleLambert(mtlData, inputSample, sampleDir, result.diffValue, result.diffPdf))
+            if (!BRDF::SampleLambert(mtlData, GetDiffuseNormal(mtlData), inputSample, sampleDir, result.diffValue, result.diffPdf))
                 return false;
 
             result.diffValue *= mtlData.bsdfData.ambientOcclusion;
@@ -130,7 +131,7 @@ bool SampleMaterial(MaterialData mtlData, float3 inputSample, out float3 sampleD
             float3 value;
             float pdf;
 
-            if (!BRDF::SampleLambert(mtlData, inputSample, sampleDir, value, pdf))
+            if (!BRDF::SampleLambert(mtlData, GetDiffuseNormal(mtlData), inputSample, sampleDir, value, pdf))
                 return false;
 
             if (mtlData.bsdfWeight[0] > BSDF_WEIGHT_EPSILON)
@@ -141,7 +142,7 @@ bool SampleMaterial(MaterialData mtlData, float3 inputSample, out float3 sampleD
 
             if (mtlData.bsdfWeight[1] > BSDF_WEIGHT_EPSILON)
             {
-                BRDF::EvaluateSheen(mtlData, sampleDir, result.specValue, result.specPdf);
+                BRDF::EvaluateSheen(mtlData, GetSpecularNormal(mtlData), mtlData.bsdfData.roughnessT, sampleDir, result.specValue, result.specPdf);
                 result.specPdf *= mtlData.bsdfWeight[1];
             }
         }
@@ -149,7 +150,7 @@ bool SampleMaterial(MaterialData mtlData, float3 inputSample, out float3 sampleD
         {
             if (inputSample.z < mtlData.bsdfWeight[0]) // Diffuse BRDF
             {
-                if (!BRDF::SampleBurley(mtlData, inputSample, sampleDir, result.diffValue, result.diffPdf))
+                if (!BRDF::SampleBurley(mtlData, GetDiffuseNormal(mtlData), inputSample, sampleDir, result.diffValue, result.diffPdf))
                     return false;
 
                 result.diffValue *= mtlData.bsdfData.ambientOcclusion;
@@ -157,20 +158,20 @@ bool SampleMaterial(MaterialData mtlData, float3 inputSample, out float3 sampleD
 
                 if (mtlData.bsdfWeight[1] > BSDF_WEIGHT_EPSILON)
                 {
-                    BRDF::EvaluateAnisoGGX(mtlData, mtlData.bsdfData.fresnel0, sampleDir, result.specValue, result.specPdf);
+                    BRDF::EvaluateAnisoGGX(mtlData, GetSpecularNormal(mtlData), mtlData.bsdfData.roughnessT, mtlData.bsdfData.roughnessB, mtlData.bsdfData.fresnel0, sampleDir, result.specValue, result.specPdf);
                     result.specPdf *= mtlData.bsdfWeight[1];
                 }
             }
             else // Spec GGX BRDF
             {
-                if (!BRDF::SampleAnisoGGX(mtlData, mtlData.bsdfData.fresnel0, inputSample, sampleDir, result.specValue, result.specPdf))
+                if (!BRDF::SampleAnisoGGX(mtlData, GetSpecularNormal(mtlData), mtlData.bsdfData.roughnessT, mtlData.bsdfData.roughnessB, mtlData.bsdfData.fresnel0, inputSample, sampleDir, result.specValue, result.specPdf))
                     return false;
 
                 result.specPdf *= mtlData.bsdfWeight[1];
 
                 if (mtlData.bsdfWeight[0] > BSDF_WEIGHT_EPSILON)
                 {
-                    BRDF::EvaluateBurley(mtlData, sampleDir, result.diffValue, result.diffPdf);
+                    BRDF::EvaluateBurley(mtlData, GetDiffuseNormal(mtlData), sampleDir, result.diffValue, result.diffPdf);
                     result.diffValue *= mtlData.bsdfData.ambientOcclusion;
                     result.diffPdf *= mtlData.bsdfWeight[0];
                 }
@@ -185,7 +186,7 @@ bool SampleMaterial(MaterialData mtlData, float3 inputSample, out float3 sampleD
     }
     else // Diffuse BTDF
     {
-        if (!BTDF::SampleLambert(mtlData, inputSample, sampleDir, result.diffValue, result.diffPdf))
+        if (!BTDF::SampleLambert(mtlData, GetDiffuseNormal(mtlData), inputSample, sampleDir, result.diffValue, result.diffPdf))
             return false;
 
         result.diffValue *= mtlData.bsdfData.transmittance * mtlData.bsdfData.ambientOcclusion;
@@ -209,7 +210,7 @@ void EvaluateMaterial(MaterialData mtlData, float3 sampleDir, out MaterialResult
     {
         if (mtlData.isSubsurface)
         {
-            BRDF::EvaluateLambert(mtlData, sampleDir, result.diffValue, result.diffPdf);
+            BRDF::EvaluateLambert(mtlData, GetDiffuseNormal(mtlData), sampleDir, result.diffValue, result.diffPdf);
             return;
         }
     }
@@ -220,13 +221,13 @@ void EvaluateMaterial(MaterialData mtlData, float3 sampleDir, out MaterialResult
         {
             if (mtlData.bsdfWeight[0] > BSDF_WEIGHT_EPSILON)
             {
-                BRDF::EvaluateLambert(mtlData, sampleDir, result.diffValue, result.diffPdf);
+                BRDF::EvaluateLambert(mtlData, GetDiffuseNormal(mtlData), sampleDir, result.diffValue, result.diffPdf);
                 result.diffPdf *= mtlData.bsdfWeight[0];
             }
 
             if (mtlData.bsdfWeight[1] > BSDF_WEIGHT_EPSILON)
             {
-                BRDF::EvaluateSheen(mtlData, sampleDir, result.specValue, result.specPdf);
+                BRDF::EvaluateSheen(mtlData, GetSpecularNormal(mtlData), mtlData.bsdfData.roughnessT, sampleDir, result.specValue, result.specPdf);
                 result.specPdf *= mtlData.bsdfWeight[1];
             }
         }
@@ -234,20 +235,20 @@ void EvaluateMaterial(MaterialData mtlData, float3 sampleDir, out MaterialResult
         {
             if (mtlData.bsdfWeight[0] > BSDF_WEIGHT_EPSILON)
             {
-                BRDF::EvaluateBurley(mtlData, sampleDir, result.diffValue, result.diffPdf);
+                BRDF::EvaluateBurley(mtlData, GetDiffuseNormal(mtlData), sampleDir, result.diffValue, result.diffPdf);
                 result.diffPdf *= mtlData.bsdfWeight[0];
             }
 
             if (mtlData.bsdfWeight[1] > BSDF_WEIGHT_EPSILON)
             {
-                BRDF::EvaluateAnisoGGX(mtlData, mtlData.bsdfData.fresnel0, sampleDir, result.specValue, result.specPdf);
+                BRDF::EvaluateAnisoGGX(mtlData, GetSpecularNormal(mtlData), mtlData.bsdfData.roughnessT, mtlData.bsdfData.roughnessB, mtlData.bsdfData.fresnel0, sampleDir, result.specValue, result.specPdf);
                 result.specPdf *= mtlData.bsdfWeight[1];
             }
         }
 
         if (IsBelow(GetDiffuseNormal(mtlData), sampleDir) && mtlData.bsdfWeight[2] > BSDF_WEIGHT_EPSILON)
         {
-            BTDF::EvaluateLambert(mtlData, sampleDir, result.diffValue, result.diffPdf);
+            BTDF::EvaluateLambert(mtlData, GetDiffuseNormal(mtlData), sampleDir, result.diffValue, result.diffPdf);
             result.diffValue *= mtlData.bsdfData.transmittance;
             result.diffPdf *= mtlData.bsdfWeight[2];
 
@@ -266,12 +267,16 @@ void EvaluateMaterial(MaterialData mtlData, float3 sampleDir, out MaterialResult
     }
 }
 
+float3 GetLightNormal(MaterialData mtlData)
+{
+    // If both diffuse and specular normals are quasi-indentical, return one of them, otherwise return a null vector
+    return dot(GetDiffuseNormal(mtlData), GetSpecularNormal(mtlData)) > 0.99 ? GetDiffuseNormal(mtlData) : float3(0.0, 0.0, 0.0);
+}
+
 float AdjustPathRoughness(MaterialData mtlData, MaterialResult mtlResult, bool isSampleBelow, float pathRoughness)
 {
     // Adjust the max roughness, based on the estimated diff/spec ratio
-    float adjustedPathRoughness = (mtlResult.specPdf * max(mtlData.bsdfData.roughnessT, mtlData.bsdfData.roughnessB) + mtlResult.diffPdf) / (mtlResult.diffPdf + mtlResult.specPdf);
-
-    return adjustedPathRoughness;
+    return (mtlResult.specPdf * max(mtlData.bsdfData.roughnessT, mtlData.bsdfData.roughnessB) + mtlResult.diffPdf) / (mtlResult.diffPdf + mtlResult.specPdf);
 }
 
 float3 ApplyAbsorption(MaterialData mtlData, SurfaceData surfaceData, float dist, bool isSampleBelow, float3 value)

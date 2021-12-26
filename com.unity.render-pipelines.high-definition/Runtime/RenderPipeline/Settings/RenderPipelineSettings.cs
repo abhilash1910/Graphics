@@ -94,16 +94,18 @@ namespace UnityEngine.Rendering.HighDefinition
                 supportedLitShaderMode = SupportedLitShaderMode.DeferredOnly,
                 supportDecals = true,
                 supportDecalLayers = false,
+                supportSurfaceGradient = true,
+                decalNormalBufferHP = false,
                 msaaSampleCount = MSAASamples.None,
                 supportMotionVectors = true,
-                supportRuntimeDebugDisplay = false,
                 supportRuntimeAOVAPI = false,
                 supportDitheringCrossFade = true,
                 supportTerrainHole = false,
+                supportWater = false,
+                waterSimulationResolution = WaterSimulationResolution.Medium128,
                 planarReflectionResolution = new PlanarReflectionAtlasResolutionScalableSetting(new[] { PlanarReflectionAtlasResolution.Resolution256,
                                                                                                         PlanarReflectionAtlasResolution.Resolution1024,
-                                                                                                        PlanarReflectionAtlasResolution.Resolution2048 },
-                    ScalableSettingSchemaId.With3Levels),
+                                                                                                        PlanarReflectionAtlasResolution.Resolution2048 }, ScalableSettingSchemaId.With3Levels),
                 lightLoopSettings = GlobalLightLoopSettings.NewDefault(),
                 hdShadowInitParams = HDShadowInitParameters.NewDefault(),
                 decalSettings = GlobalDecalSettings.NewDefault(),
@@ -121,6 +123,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 maximumLODLevel = new IntScalableSetting(new[] { 0, 0, 0 }, ScalableSettingSchemaId.With3Levels),
                 supportProbeVolume = false,
                 probeVolumeMemoryBudget = ProbeVolumeTextureMemoryBudget.MemoryBudgetMedium,
+                supportProbeVolumeStreaming = false,
                 probeVolumeSHBands = ProbeVolumeSHBands.SphericalHarmonicsL1,
             };
             return settings;
@@ -180,6 +183,11 @@ namespace UnityEngine.Rendering.HighDefinition
         public bool supportVolumetricClouds;
         /// <summary>Support light layers.</summary>
         public bool supportLightLayers;
+        /// <summary>Support Water Surfaces.</summary>
+        public bool supportWater;
+        /// <summary>Water simulation resolution</summary>
+        public WaterSimulationResolution waterSimulationResolution;
+
         /// <summary>Name for light layer 0.</summary>
         public string lightLayerName0
         {
@@ -251,6 +259,10 @@ namespace UnityEngine.Rendering.HighDefinition
         public bool supportDecals;
         /// <summary>Support decal Layers.</summary>
         public bool supportDecalLayers;
+        /// <summary>Support surface gradient for decal normal blending.</summary>
+        public bool supportSurfaceGradient;
+        /// <summary>High precision normal buffer.</summary>
+        public bool decalNormalBufferHP;
         /// <summary>Name for decal layer 0.</summary>
         public string decalLayerName0
         {
@@ -314,8 +326,13 @@ namespace UnityEngine.Rendering.HighDefinition
 
         /// <summary>Support motion vectors.</summary>
         public bool supportMotionVectors;
+
         /// <summary>Support runtime debug display.</summary>
-        public bool supportRuntimeDebugDisplay;
+        public bool supportRuntimeDebugDisplay
+        {
+            get => HDRenderPipelineGlobalSettings.instance.supportRuntimeDebugDisplay;
+            set => HDRenderPipelineGlobalSettings.instance.supportRuntimeDebugDisplay = value;
+        }
         /// <summary>Support runtime AOV API.</summary>
         public bool supportRuntimeAOVAPI;
         /// <summary>Support dithered cross-fade.</summary>
@@ -326,6 +343,8 @@ namespace UnityEngine.Rendering.HighDefinition
         public bool supportProbeVolume;
         /// <summary>Support Probe Volumes.</summary>
         public ProbeVolumeTextureMemoryBudget probeVolumeMemoryBudget;
+        /// <summary>Support Streaming for Probe Volumes.</summary>
+        public bool supportProbeVolumeStreaming;
         /// <summary>Probe Volumes SH Bands.</summary>
         public ProbeVolumeSHBands probeVolumeSHBands;
 
@@ -361,7 +380,7 @@ namespace UnityEngine.Rendering.HighDefinition
         /// <summary>Global lighting quality settings.</summary>
         public GlobalLightingQualitySettings lightingQualitySettings;
 
-    #pragma warning disable 618 // Type or member is obsolete
+#pragma warning disable 618 // Type or member is obsolete
         [Obsolete("For data migration")]
         internal bool m_ObsoleteincreaseSssSampleCount;
 
@@ -414,6 +433,10 @@ namespace UnityEngine.Rendering.HighDefinition
         [SerializeField]
         [FormerlySerializedAs("decalLayerName7"), Obsolete("Moved to HDGlobal Settings")]
         internal string m_ObsoleteDecalLayerName7;
-    #pragma warning restore 618
+
+        [SerializeField]
+        [FormerlySerializedAs("supportRuntimeDebugDisplay"), Obsolete("Moved to HDGlobal Settings")]
+        internal bool m_ObsoleteSupportRuntimeDebugDisplay;
+#pragma warning restore 618
     }
 }

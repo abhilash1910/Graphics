@@ -17,6 +17,9 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField, Reload("Runtime/Materials/Sprite-Unlit-Default.mat")]
         Material m_DefaultUnlitMaterial = null;
 
+        [SerializeField, Reload("Runtime/Materials/SpriteMask-Default.mat")]
+        Material m_DefaultMaskMaterial = null;
+
         internal override Shader GetDefaultShader()
         {
             return Shader.Find("Universal Render Pipeline/2D/Sprite-Lit-Default");
@@ -33,11 +36,15 @@ namespace UnityEngine.Rendering.Universal
                 else
                     return m_DefaultCustomMaterial;
             }
+            if (materialType == DefaultMaterialType.SpriteMask)
+            {
+                return m_DefaultMaskMaterial;
+            }
 
             return null;
         }
 
-        private void OnEnableInEditor()
+        private void InitializeSpriteEditorPrefs()
         {
             // Provide a list of suggested texture property names to Sprite Editor via EditorPrefs.
             const string suggestedNamesKey = "SecondarySpriteTexturePropertyNames";
@@ -68,6 +75,7 @@ namespace UnityEngine.Rendering.Universal
 
         private void Awake()
         {
+            // Initialize Light Blend Styles
             if (m_LightBlendStyles != null)
             {
                 for (int i = 0; i < m_LightBlendStyles.Length; ++i)
@@ -97,6 +105,9 @@ namespace UnityEngine.Rendering.Universal
             m_LightBlendStyles[3].name = "Additive with Mask";
             m_LightBlendStyles[3].blendMode = Light2DBlendStyle.BlendMode.Additive;
             m_LightBlendStyles[3].maskTextureChannel = Light2DBlendStyle.TextureChannel.R;
+
+            // Initialize Editor Prefs for Sprite Editor
+            InitializeSpriteEditorPrefs();
         }
 
 #endif

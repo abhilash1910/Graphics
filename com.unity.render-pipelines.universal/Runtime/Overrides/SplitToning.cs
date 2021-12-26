@@ -2,7 +2,7 @@ using System;
 
 namespace UnityEngine.Rendering.Universal
 {
-    [Serializable, VolumeComponentMenu("Post-processing/Split Toning")]
+    [Serializable, VolumeComponentMenuForRenderPipeline("Post-processing/Split Toning", typeof(UniversalRenderPipeline))]
     public sealed class SplitToning : VolumeComponent, IPostProcessComponent
     {
         [Tooltip("The color to use for shadows.")]
@@ -14,8 +14,10 @@ namespace UnityEngine.Rendering.Universal
         [Tooltip("Balance between the colors in the highlights and shadows.")]
         public ClampedFloatParameter balance = new ClampedFloatParameter(0f, -100f, 100f);
 
+        /// <inheritdoc/>
         public bool IsActive() => shadows != Color.grey || highlights != Color.grey;
 
+        /// <inheritdoc/>
         public bool IsTileCompatible() => true;
     }
 }

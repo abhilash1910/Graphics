@@ -4,7 +4,7 @@ using UnityEngine.Rendering.HighDefinition;
 
 namespace UnityEditor.Rendering.HighDefinition
 {
-    [VolumeComponentEditor(typeof(ChromaticAberration))]
+    [CustomEditor(typeof(ChromaticAberration))]
     sealed class ChromaticAberrationEditor : VolumeComponentWithQualityEditor
     {
         SerializedDataParameter m_SpectralLUT;
@@ -29,7 +29,7 @@ namespace UnityEditor.Rendering.HighDefinition
 
             base.OnInspectorGUI();
 
-            using (new HDEditorUtils.IndentScope())
+            using (new IndentLevelScope())
             using (new QualityScope(this))
             {
                 PropertyField(m_MaxSamples);

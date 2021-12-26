@@ -34,6 +34,10 @@
 |[**Vertex Color**](Vertex-Color-Node.md)|[**View Direction**](View-Direction-Node.md)|
 |![Image](images/VertexColorNodeThumb.png)|![Image](images/ViewDirectionNodeThumb.png)|
 |Provides access to the mesh vertex or fragment's Vertex Color value.|Provides access to the mesh vertex or fragment's View Direction vector.|
+|[**Vertex ID**](Vertex-ID-Node.md)|
+|![Image](images/VertexIDNodeThumb.png)|
+|Provides access to the mesh vertex or fragment's Vertex ID value.|
+
 
 ## Gradient
 
@@ -84,9 +88,9 @@
 |[**Scene Color**](Scene-Color-Node.md)|[**Scene Depth**](Scene-Depth-Node.md)|
 |![Image](images/SceneColorNodeThumb.png)|![Image](images/SceneDepthNodeThumb.png)|
 |Provides access to the current Camera's color buffer.|Provides access to the current Camera's depth buffer.|
-|[**Screen**](Screen-Node.md)||
-|![Image](images/ScreenNodeThumb.png)||
-|Provides access to parameters of the screen.||
+|[**Screen**](Screen-Node.md)|[**Eye Index**](Eye-Index-Node.md)|
+|![Image](images/ScreenNodeThumb.png)|![Image](images/EyeIndexNodeThumb.png)|
+|Provides access to parameters of the screen.|Provides access to the Eye Index when stereo rendering.|
 
 ## Texture
 
@@ -103,8 +107,8 @@
 |[**Sample Texture 3D**](Sample-Texture-3D-Node.md)| [**Sample Virtual Texture**](Sample-Virtual-Texture-Node.md) |
 |![Image](images/SampleTexture3DNodeThumb.png)| ![image](images/SampleVirtualTextureNodeThumb.png) |
 |Samples a Texture 3D and returns a color value for use in the shader.| Samples a Virtual Texture and returns color values for use in the shader.|
-|[**Sampler State**](Sampler-State-Node.md)|[**Texel Size**](Texel-Size-Node.md)|
-|![Image](images/SamplerStateNodeThumb.png)|![Image](images/TexelSizeNodeThumb.png)|
+|[**Sampler State**](Sampler-State-Node.md)|[**Texture Size**](Texture-Size-Node.md)|
+|![Image](images/SamplerStateNodeThumb.png)|![Image](images/TexelSizeNodeThumb.png) <!-- Add updated image -->|
 |Defines a Sampler State for sampling textures.|Returns the Width and Height of the texel size of Texture 2D input.|
 |[**Texture 2D Array Asset**](Texture-2D-Array-Asset-Node.md)|[**Texture 2D Asset**](Texture-2D-Asset-Node.md)|
 |![Image](images/Texture2DArrayAssetNodeThumb.png)|![Image](images/Texture2DAssetNodeThumb.png)|

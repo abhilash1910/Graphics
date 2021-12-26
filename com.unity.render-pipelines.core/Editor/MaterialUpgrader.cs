@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using System;
+using UnityEngine.Rendering;
 
 namespace UnityEditor.Rendering
 {
@@ -37,6 +38,14 @@ namespace UnityEditor.Rendering
         string m_OldShader;
         string m_NewShader;
 
+        /// <summary>
+        /// Retrieves path to new shader.
+        /// </summary>
+        public string NewShaderPath
+        {
+            get => m_NewShader;
+        }
+
         MaterialFinalizer m_Finalizer;
 
         Dictionary<string, string> m_TextureRename = new Dictionary<string, string>();
@@ -56,6 +65,36 @@ namespace UnityEditor.Rendering
             public float setVal, unsetVal;
         }
         List<KeywordFloatRename> m_KeywordFloatRename = new List<KeywordFloatRename>();
+
+        /// <summary>
+        /// Type of property to rename.
+        /// </summary>
+        public enum MaterialPropertyType
+        {
+            /// <summary>Texture reference property.</summary>
+            Texture,
+            /// <summary>Float property.</summary>
+            Float,
+            /// <summary>Color property.</summary>
+            Color
+        }
+
+        /// <summary>
+        /// Retrieves a collection of renamed parameters of a specific MaterialPropertyType.
+        /// </summary>
+        /// <param name="type">Material Property Type</param>
+        /// <returns>Dictionary of property names to their renamed values.</returns>
+        /// <exception cref="ArgumentException">type is not valid.</exception>
+        public IReadOnlyDictionary<string, string> GetPropertyRenameMap(MaterialPropertyType type)
+        {
+            switch (type)
+            {
+                case MaterialPropertyType.Texture: return m_TextureRename;
+                case MaterialPropertyType.Float: return m_FloatRename;
+                case MaterialPropertyType.Color: return m_ColorRename;
+                default: throw new ArgumentException(nameof(type));
+            }
+        }
 
         /// <summary>
         /// Upgrade Flags
@@ -394,9 +433,11 @@ namespace UnityEditor.Rendering
         /// <param name="flags">Material Upgrader flags.</param>
         public static void Upgrade(Material material, MaterialUpgrader upgrader, UpgradeFlags flags)
         {
-            var upgraders = new List<MaterialUpgrader>();
-            upgraders.Add(upgrader);
-            Upgrade(material, upgraders, flags);
+            using (ListPool<MaterialUpgrader>.Get(out List<MaterialUpgrader> upgraders))
+            {
+                upgraders.Add(upgrader);
+                Upgrade(material, upgraders, flags);
+            }
         }
 
         /// <summary>
@@ -407,7 +448,7 @@ namespace UnityEditor.Rendering
         /// <param name="flags">Material Upgrader flags.</param>
         public static void Upgrade(Material material, List<MaterialUpgrader> upgraders, UpgradeFlags flags)
         {
-            string message = String.Empty;
+            string message = string.Empty;
             if (Upgrade(material, upgraders, flags, ref message))
                 return;
 
@@ -424,7 +465,7 @@ namespace UnityEditor.Rendering
         /// <param name="upgraders">List of Material upgraders.</param>
         /// <param name="flags">Material upgrader flags.</param>
         /// <param name="message">Error message to be outputted when no material upgraders are suitable for given material if the flags <see cref="UpgradeFlags.LogMessageWhenNoUpgraderFound"/> is used.</param>
-        /// <return>Returns true if the upgrader was found for the passed in material.</return>
+        /// <returns>Returns true if the upgrader was found for the passed in material.</returns>
         public static bool Upgrade(Material material, List<MaterialUpgrader> upgraders, UpgradeFlags flags, ref string message)
         {
             if (material == null)

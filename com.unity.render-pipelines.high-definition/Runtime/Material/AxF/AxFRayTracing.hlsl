@@ -67,7 +67,7 @@ float RecursiveRenderingReflectionPerceptualSmoothness(BSDFData bsdfData)
 #endif
 
 #if (SHADERPASS == SHADERPASS_RAYTRACING_GBUFFER)
-void FitToStandardLit( SurfaceData surfaceData
+void FitToStandardLit( BSDFData bsdfData
                         , BuiltinData builtinData
                         , uint2 positionSS
                         , out StandardBSDFData outStandardlit)
@@ -79,22 +79,22 @@ void FitToStandardLit( SurfaceData surfaceData
 
     // We can fake flakes by mixing a component in the diffuse color
     // or the F0, with the later maybe averaging the f0 according to roughness and V
-    GetBaseSurfaceColorAndF0(surfaceData,
+    GetBaseSurfaceColorAndF0(bsdfData,
                              /*out*/ outStandardlit.baseColor,
                              /*out*/ outStandardlit.fresnel0,
                              /*out*/specBRDFColor,
                              /*out*/singleFlakesComponent,
                              /*out*/coatFGD,
-                             surfaceData.viewWS,
+                             bsdfData.viewWS,
                              /*mixFlakes:*/ true);
 
-    outStandardlit.specularOcclusion = surfaceData.specularOcclusion;
+    outStandardlit.specularOcclusion = bsdfData.specularOcclusion;
 
-    GetRoughnessNormalCoatMaskForFitToStandardLit(surfaceData, coatFGD, /*out*/ outStandardlit.normalWS, /*out*/ scalarRoughness, /*out*/ outStandardlit.coatMask);
+    GetRoughnessNormalCoatMaskForFitToStandardLit(bsdfData, coatFGD, /*out*/ outStandardlit.normalWS, /*out*/ scalarRoughness, /*out*/ outStandardlit.coatMask);
     outStandardlit.perceptualRoughness = RoughnessToPerceptualRoughness(scalarRoughness);
 
     // diffuseFGD is one (from Lambert), but carpaint have a tint on diffuse, try to fit that here:
-    outStandardlit.emissiveAndBaked = builtinData.bakeDiffuseLighting * specBRDFColor * surfaceData.ambientOcclusion + builtinData.emissiveColor;
+    outStandardlit.emissiveAndBaked = builtinData.bakeDiffuseLighting * specBRDFColor * bsdfData.ambientOcclusion + builtinData.emissiveColor;
     outStandardlit.isUnlit = 0;
 }
 #endif

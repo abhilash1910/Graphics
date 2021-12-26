@@ -1,28 +1,29 @@
-using System;
 using System.Diagnostics;
-
 
 namespace UnityEngine.Rendering.Universal
 {
     [Conditional("UNITY_EDITOR")]
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Enum, AllowMultiple = false)]
-    internal class URPHelpURLAttribute : HelpURLAttribute
+    internal class URPHelpURLAttribute : CoreRPHelpURLAttribute
     {
-        //This must be used like
-        //[URPHelpURLAttribute("some-page")]
-        public URPHelpURLAttribute(string pageName)
-            : base(Documentation.GetPageLink(pageName))
+        public URPHelpURLAttribute(string pageName, string pageHash = "")
+            : base(pageName, Documentation.packageName, pageHash)
         {
         }
     }
 
-
-    //Need to live in Runtime as Attribute of documentation is on Runtime classes \o/
-    class Documentation : DocumentationInfo
+    internal class Documentation : DocumentationInfo
     {
-        internal static string GetPageLink(string pageName)
-        {
-            return $"https://docs.unity3d.com/Packages/com.unity.render-pipelines.universal@latest/index.html?subfolder=/manual/{pageName}.html";
-        }
+        /// <summary>
+        /// The name of the package
+        /// </summary>
+        public const string packageName = "com.unity.render-pipelines.universal";
+
+        /// <summary>
+        /// Generates a help url for the given package and page name
+        /// </summary>
+        /// <param name="pageName">The page name</param>
+        /// <param name="pageHash">The page hash</param>
+        /// <returns>The full url page</returns>
+        public static string GetPageLink(string pageName, string pageHash = "") => GetPageLink(packageName, pageName, pageHash);
     }
 }

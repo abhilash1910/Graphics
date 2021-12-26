@@ -7,13 +7,11 @@
 // Generated from UnityEngine.Rendering.ShaderVariablesProbeVolumes
 // PackingRules = Exact
 GLOBAL_CBUFFER_START(ShaderVariablesProbeVolumes, b5)
-    float4x4 _WStoRS;
-    float3 _IndexDim;
-    float _NormalBias;
-    float3 _PoolDim;
-    float _ViewBias;
-    float _PVSamplingNoise;
-    float3 pad0;
+    float4 _PoolDim_CellInMeters;
+    float4 _MinCellPos_Noise;
+    float4 _IndicesDim_IndexChunkSize;
+    float4 _Biases_CellInMinBrick_MinBrickSize;
+    float4 _Weight_Padding;
 CBUFFER_END
 
 

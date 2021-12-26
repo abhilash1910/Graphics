@@ -85,27 +85,6 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
         PreChangeValueCallback _preChangeValueCallback;
         PostChangeValueCallback _postChangeValueCallback;
 
-        public void GetPropertyData(
-            bool isSubGraph,
-            GraphData graphData,
-            ChangeExposedFieldCallback exposedFieldCallback,
-            Action precisionChangedCallback,
-            Action keywordChangedCallback,
-            Action dropdownChangedCallback,
-            ChangeValueCallback changeValueCallback,
-            PostChangeValueCallback postChangeValueCallback)
-        {
-            this.isSubGraph = isSubGraph;
-            this.graphData = graphData;
-            this._keywordChangedCallback = keywordChangedCallback;
-            this._dropdownChangedCallback = dropdownChangedCallback;
-            this._precisionChangedCallback = precisionChangedCallback;
-            this._exposedFieldChangedCallback = exposedFieldCallback;
-            this._changeValueCallback = changeValueCallback;
-            this._preChangeValueCallback = (actionName) => this.graphData.owner.RegisterCompleteObjectUndo(actionName);
-            this._postChangeValueCallback = postChangeValueCallback;
-        }
-
         internal void GetViewModel(ShaderInputViewModel shaderInputViewModel, GraphData inGraphData, PostChangeValueCallback postChangeValueCallback)
         {
             m_ViewModel = shaderInputViewModel;
@@ -113,13 +92,11 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
             this.graphData = inGraphData;
             this._keywordChangedCallback = () => graphData.OnKeywordChanged();
             this._dropdownChangedCallback = () => graphData.OnDropdownChanged();
-            this._precisionChangedCallback = () =>  graphData.ValidateGraph();
+            this._precisionChangedCallback = () => graphData.ValidateGraph();
 
             this._exposedFieldChangedCallback = newValue =>
             {
-                var changeExposedFlagAction = new ChangeExposedFlagAction();
-                changeExposedFlagAction.shaderInputReference = shaderInput;
-                changeExposedFlagAction.newIsExposedValue = newValue;
+                var changeExposedFlagAction = new ChangeExposedFlagAction(shaderInput, newValue);
                 ViewModel.requestModelChangeAction(changeExposedFlagAction);
             };
 
@@ -182,6 +159,8 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
             return propertySheet;
         }
 
+        void IPropertyDrawer.DisposePropertyDrawer() { }
+
         void BuildPropertyNameLabel(PropertySheet propertySheet)
         {
             string prefix;
@@ -214,7 +193,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
             }
         }
 
-        void BuildCustomBindingField(PropertySheet propertySheet, AbstractShaderProperty property)
+        void BuildCustomBindingField(PropertySheet propertySheet, ShaderInput property)
         {
             if (isSubGraph && property.isCustomSlotAllowed)
             {
@@ -293,6 +272,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                     {
                         this._preChangeValueCallback("Change Display Name");
                         shaderInput.SetDisplayNameAndSanitizeForGraph(graphData, evt.newValue);
+                        this._displayNameChangedCallback(evt.newValue);
 
                         if (string.IsNullOrEmpty(shaderInput.displayName))
                             m_DisplayNameField.RemoveFromClassList("modified");
@@ -316,7 +296,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                 m_ReferenceNameDrawer = new TextPropertyDrawer();
                 propertySheet.Add(m_ReferenceNameDrawer.CreateGUI(
                     null,
-                    (string)shaderInput.referenceName,
+                    (string)shaderInput.referenceNameForEditing,
                     "Reference"));
 
                 m_ReferenceNameField = m_ReferenceNameDrawer.textField;
@@ -326,7 +306,10 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                         this._preChangeValueCallback("Change Reference Name");
 
                         if (evt.newValue != shaderInput.referenceName)
+                        {
                             shaderInput.SetReferenceNameAndSanitizeForGraph(graphData, evt.newValue);
+                            this._referenceNameChangedCallback(evt.newValue);
+                        }
 
                         if (string.IsNullOrEmpty(shaderInput.overrideReferenceName))
                         {
@@ -347,7 +330,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                     m_ReferenceNameDrawer.textField.AddToClassList("modified");
                     m_ReferenceNameDrawer.label.AddToClassList("modified");
                 }
-                m_ReferenceNameDrawer.textField.SetEnabled(shaderInput.isRenamable);
+                m_ReferenceNameDrawer.textField.SetEnabled(shaderInput.isReferenceRenamable);
 
                 // add the right click context menu to the label
                 IManipulator contextMenuManipulator = new ContextualMenuManipulator((evt) => AddShaderInputOptionsToContextMenu(shaderInput, evt));
@@ -375,6 +358,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
             this._preChangeValueCallback("Reset Reference Name");
             var refName = shaderInput.ResetReferenceName(graphData);
             m_ReferenceNameField.value = refName;
+            this._referenceNameChangedCallback(refName);
             this._postChangeValueCallback(true, ModificationScope.Graph);
         }
 
@@ -383,92 +367,107 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
             this._preChangeValueCallback("Upgrade Reference Name");
             var refName = shaderInput.UpgradeDefaultReferenceName(graphData);
             m_ReferenceNameField.value = refName;
+            this._referenceNameChangedCallback(refName);
             this._postChangeValueCallback(true, ModificationScope.Graph);
         }
 
         void BuildPropertyFields(PropertySheet propertySheet)
         {
-            var property = shaderInput as AbstractShaderProperty;
-            if (property == null)
-                return;
-
-            if (property.sgVersion < property.latestVersion)
+            if (shaderInput is AbstractShaderProperty property)
             {
-                var typeString = property.propertyType.ToString();
-                var help = HelpBoxRow.TryGetDeprecatedHelpBoxRow($"{typeString} Property", () => property.ChangeVersion(property.latestVersion));
-                if (help != null)
+                if (property.sgVersion < property.latestVersion)
                 {
-                    propertySheet.Insert(0, help);
+                    var typeString = property.propertyType.ToString();
+
+                    Action dismissAction = null;
+                    if (property.dismissedUpdateVersion < property.latestVersion)
+                    {
+                        dismissAction = () =>
+                        {
+                            _preChangeValueCallback("Dismiss Property Update");
+                            property.dismissedUpdateVersion = property.latestVersion;
+                            _postChangeValueCallback();
+                            inspectorUpdateDelegate?.Invoke();
+                        };
+                    }
+
+                    var help = HelpBoxRow.TryGetDeprecatedHelpBoxRow($"{typeString} Property",
+                        () => property.ChangeVersion(property.latestVersion),
+                        dismissAction);
+                    if (help != null)
+                    {
+                        propertySheet.Insert(0, help);
+                    }
                 }
+
+                switch (property)
+                {
+                    case IShaderPropertyDrawer propDrawer:
+                        propDrawer.HandlePropertyField(propertySheet, _preChangeValueCallback, _postChangeValueCallback);
+                        break;
+                    case UnityEditor.ShaderGraph.Serialization.MultiJsonInternal.UnknownShaderPropertyType unknownProperty:
+                        var helpBox = new HelpBoxRow(MessageType.Warning);
+                        helpBox.Add(new Label("Cannot find the code for this Property, a package may be missing."));
+                        propertySheet.Add(helpBox);
+                        break;
+                    case Vector1ShaderProperty vector1Property:
+                        HandleVector1ShaderProperty(propertySheet, vector1Property);
+                        break;
+                    case Vector2ShaderProperty vector2Property:
+                        HandleVector2ShaderProperty(propertySheet, vector2Property);
+                        break;
+                    case Vector3ShaderProperty vector3Property:
+                        HandleVector3ShaderProperty(propertySheet, vector3Property);
+                        break;
+                    case Vector4ShaderProperty vector4Property:
+                        HandleVector4ShaderProperty(propertySheet, vector4Property);
+                        break;
+                    case ColorShaderProperty colorProperty:
+                        HandleColorProperty(propertySheet, colorProperty);
+                        break;
+                    case Texture2DShaderProperty texture2DProperty:
+                        HandleTexture2DProperty(propertySheet, texture2DProperty);
+                        break;
+                    case Texture2DArrayShaderProperty texture2DArrayProperty:
+                        HandleTexture2DArrayProperty(propertySheet, texture2DArrayProperty);
+                        break;
+                    case VirtualTextureShaderProperty virtualTextureProperty:
+                        HandleVirtualTextureProperty(propertySheet, virtualTextureProperty);
+                        break;
+                    case Texture3DShaderProperty texture3DProperty:
+                        HandleTexture3DProperty(propertySheet, texture3DProperty);
+                        break;
+                    case CubemapShaderProperty cubemapProperty:
+                        HandleCubemapProperty(propertySheet, cubemapProperty);
+                        break;
+                    case BooleanShaderProperty booleanProperty:
+                        HandleBooleanProperty(propertySheet, booleanProperty);
+                        break;
+                    case Matrix2ShaderProperty matrix2Property:
+                        HandleMatrix2PropertyField(propertySheet, matrix2Property);
+                        break;
+                    case Matrix3ShaderProperty matrix3Property:
+                        HandleMatrix3PropertyField(propertySheet, matrix3Property);
+                        break;
+                    case Matrix4ShaderProperty matrix4Property:
+                        HandleMatrix4PropertyField(propertySheet, matrix4Property);
+                        break;
+                    case SamplerStateShaderProperty samplerStateProperty:
+                        HandleSamplerStatePropertyField(propertySheet, samplerStateProperty);
+                        break;
+                    case GradientShaderProperty gradientProperty:
+                        HandleGradientPropertyField(propertySheet, gradientProperty);
+                        break;
+                }
+
+                BuildPrecisionField(propertySheet, property);
+
+                BuildExposedField(propertySheet);
+
+                BuildHLSLDeclarationOverrideFields(propertySheet, property);
             }
 
-            switch (property)
-            {
-                case IShaderPropertyDrawer propDrawer:
-                    propDrawer.HandlePropertyField(propertySheet, _preChangeValueCallback, _postChangeValueCallback);
-                    break;
-                case UnityEditor.ShaderGraph.Serialization.MultiJsonInternal.UnknownShaderPropertyType unknownProperty:
-                    var helpBox = new HelpBoxRow(MessageType.Warning);
-                    helpBox.Add(new Label("Cannot find the code for this Property, a package may be missing."));
-                    propertySheet.Add(helpBox);
-                    break;
-                case Vector1ShaderProperty vector1Property:
-                    HandleVector1ShaderProperty(propertySheet, vector1Property);
-                    break;
-                case Vector2ShaderProperty vector2Property:
-                    HandleVector2ShaderProperty(propertySheet, vector2Property);
-                    break;
-                case Vector3ShaderProperty vector3Property:
-                    HandleVector3ShaderProperty(propertySheet, vector3Property);
-                    break;
-                case Vector4ShaderProperty vector4Property:
-                    HandleVector4ShaderProperty(propertySheet, vector4Property);
-                    break;
-                case ColorShaderProperty colorProperty:
-                    HandleColorProperty(propertySheet, colorProperty);
-                    break;
-                case Texture2DShaderProperty texture2DProperty:
-                    HandleTexture2DProperty(propertySheet, texture2DProperty);
-                    break;
-                case Texture2DArrayShaderProperty texture2DArrayProperty:
-                    HandleTexture2DArrayProperty(propertySheet, texture2DArrayProperty);
-                    break;
-                case VirtualTextureShaderProperty virtualTextureProperty:
-                    HandleVirtualTextureProperty(propertySheet, virtualTextureProperty);
-                    break;
-                case Texture3DShaderProperty texture3DProperty:
-                    HandleTexture3DProperty(propertySheet, texture3DProperty);
-                    break;
-                case CubemapShaderProperty cubemapProperty:
-                    HandleCubemapProperty(propertySheet, cubemapProperty);
-                    break;
-                case BooleanShaderProperty booleanProperty:
-                    HandleBooleanProperty(propertySheet, booleanProperty);
-                    break;
-                case Matrix2ShaderProperty matrix2Property:
-                    HandleMatrix2PropertyField(propertySheet, matrix2Property);
-                    break;
-                case Matrix3ShaderProperty matrix3Property:
-                    HandleMatrix3PropertyField(propertySheet, matrix3Property);
-                    break;
-                case Matrix4ShaderProperty matrix4Property:
-                    HandleMatrix4PropertyField(propertySheet, matrix4Property);
-                    break;
-                case SamplerStateShaderProperty samplerStateProperty:
-                    HandleSamplerStatePropertyField(propertySheet, samplerStateProperty);
-                    break;
-                case GradientShaderProperty gradientProperty:
-                    HandleGradientPropertyField(propertySheet, gradientProperty);
-                    break;
-            }
-
-            BuildCustomBindingField(propertySheet, property);
-
-            BuildPrecisionField(propertySheet, property);
-
-            BuildExposedField(propertySheet);
-
-            BuildHLSLDeclarationOverrideFields(propertySheet, property);
+            BuildCustomBindingField(propertySheet, shaderInput);
         }
 
         static string[] allHLSLDeclarationStrings = new string[]
@@ -624,7 +623,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                         vector1ShaderProperty.value = Mathf.Max(Mathf.Min(vector1ShaderProperty.value, vector1ShaderProperty.rangeValues.y), vector1ShaderProperty.rangeValues.x);
                         defaultField.value = vector1ShaderProperty.value;
                         _postChangeValueCallback();
-                    });
+                    }, TrickleDown.TrickleDown);
 
                     maxField.Q("unity-text-input").RegisterCallback<FocusOutEvent>(evt =>
                     {
@@ -632,7 +631,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                         vector1ShaderProperty.value = Mathf.Max(Mathf.Min(vector1ShaderProperty.value, vector1ShaderProperty.rangeValues.y), vector1ShaderProperty.rangeValues.x);
                         defaultField.value = vector1ShaderProperty.value;
                         _postChangeValueCallback();
-                    });
+                    }, TrickleDown.TrickleDown);
                     break;
 
                 case FloatType.Integer:
@@ -859,7 +858,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
         #region VT reorderable list handler
         void HandleVirtualTextureProperty(PropertySheet propertySheet, VirtualTextureShaderProperty virtualTextureProperty)
         {
-            var container = new IMGUIContainer(() => OnVTGUIHandler(virtualTextureProperty)) {name = "ListContainer"};
+            var container = new IMGUIContainer(() => OnVTGUIHandler(virtualTextureProperty)) { name = "ListContainer" };
             AddPropertyRowToSheet(propertySheet, container, "Layers");
 
             m_VTLayer_Name = new TextField();
@@ -1328,6 +1327,11 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                 {
                     this._preChangeValueCallback("Change property value");
                     keyword.value = newValue.isOn ? 1 : 0;
+                    if (graphData.owner.materialArtifact)
+                    {
+                        graphData.owner.materialArtifact.SetFloat(keyword.referenceName, keyword.value);
+                        MaterialEditor.ApplyMaterialPropertyDrawers(graphData.owner.materialArtifact);
+                    }
                     this._postChangeValueCallback(false, ModificationScope.Graph);
                 },
                 new ToggleData(keyword.value == 1),
@@ -1346,12 +1350,17 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
             {
                 this._preChangeValueCallback("Change Keyword Value");
                 keyword.value = field.index;
+                if (graphData.owner.materialArtifact)
+                {
+                    graphData.owner.materialArtifact.SetFloat(keyword.referenceName, field.index);
+                    MaterialEditor.ApplyMaterialPropertyDrawers(graphData.owner.materialArtifact);
+                }
                 this._postChangeValueCallback(false, ModificationScope.Graph);
             });
 
             AddPropertyRowToSheet(propertySheet, field, "Default");
 
-            var container = new IMGUIContainer(() => OnKeywordGUIHandler()) {name = "ListContainer"};
+            var container = new IMGUIContainer(() => OnKeywordGUIHandler()) { name = "ListContainer" };
             AddPropertyRowToSheet(propertySheet, container, "Entries");
             container.SetEnabled(!keyword.isBuiltIn);
         }
@@ -1727,7 +1736,7 @@ namespace UnityEditor.ShaderGraph.Drawing.Inspector.PropertyDrawers
                 ids.Add(dropdownEntry.id);
             }
 
-            for (int x = 1;; x++)
+            for (int x = 1; ; x++)
             {
                 if (!ids.Contains(x))
                     return x;

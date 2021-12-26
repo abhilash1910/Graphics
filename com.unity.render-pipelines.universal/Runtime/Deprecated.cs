@@ -46,6 +46,16 @@ namespace UnityEngine.Rendering.Universal
         {
             throw new NotSupportedException(k_ErrorMessage);
         }
+
+        internal override void SwapColorBuffer(CommandBuffer cmd)
+        {
+            throw new NotSupportedException(k_ErrorMessage);
+        }
+
+        internal override RTHandle GetCameraColorFrontBuffer(CommandBuffer cmd)
+        {
+            throw new NotImplementedException();
+        }
     }
 
     namespace Internal
@@ -66,8 +76,30 @@ namespace UnityEngine.Rendering.Universal
         TwoCascades,
         FourCascades,
     }
+
+    [Obsolete("This is obsolete, UnityEngine.Rendering.ShaderVariantLogLevel instead.", false)]
+    public enum ShaderVariantLogLevel
+    {
+        Disabled,
+        [InspectorName("Only URP Shaders")]
+        OnlyUniversalRPShaders,
+        [InspectorName("All Shaders")]
+        AllShaders
+    }
+
     public partial class UniversalRenderPipelineAsset
     {
+        [SerializeField] int m_ShaderVariantLogLevel;
+
+#pragma warning disable 618 // Obsolete warning
+        [Obsolete("Use UniversalRenderPipelineGlobalSettings.instance.shaderVariantLogLevel", false)]
+        public ShaderVariantLogLevel shaderVariantLogLevel
+        {
+            get { return (ShaderVariantLogLevel)UniversalRenderPipelineGlobalSettings.instance.shaderVariantLogLevel; }
+            set { UniversalRenderPipelineGlobalSettings.instance.shaderVariantLogLevel = (Rendering.ShaderVariantLogLevel)value; }
+        }
+#pragma warning restore 618 // Obsolete warning
+
 #pragma warning disable 618 // Obsolete warning
         [Obsolete("This is obsolete, please use shadowCascadeCount instead.", false)]
         [SerializeField] ShadowCascadesOption m_ShadowCascades = ShadowCascadesOption.NoCascades;
@@ -114,7 +146,7 @@ namespace UnityEngine.Rendering.Universal
         [EditorBrowsable(EditorBrowsableState.Never)]
         public RenderTargetIdentifier cameraDepth
         {
-            get => m_CameraDepthTarget;
+            get => m_CameraDepthTarget.nameID;
         }
     }
 }

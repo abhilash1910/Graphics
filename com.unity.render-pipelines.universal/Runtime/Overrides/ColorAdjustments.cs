@@ -2,7 +2,7 @@ using System;
 
 namespace UnityEngine.Rendering.Universal
 {
-    [Serializable, VolumeComponentMenu("Post-processing/Color Adjustments")]
+    [Serializable, VolumeComponentMenuForRenderPipeline("Post-processing/Color Adjustments", typeof(UniversalRenderPipeline))]
     public sealed class ColorAdjustments : VolumeComponent, IPostProcessComponent
     {
         [Tooltip("Adjusts the overall exposure of the scene in EV100. This is applied after HDR effect and right before tonemapping so it won't affect previous effects in the chain.")]
@@ -20,6 +20,7 @@ namespace UnityEngine.Rendering.Universal
         [Tooltip("Pushes the intensity of all colors.")]
         public ClampedFloatParameter saturation = new ClampedFloatParameter(0f, -100f, 100f);
 
+        /// <inheritdoc/>
         public bool IsActive()
         {
             return postExposure.value != 0f
@@ -29,6 +30,7 @@ namespace UnityEngine.Rendering.Universal
                 || saturation != 0f;
         }
 
+        /// <inheritdoc/>
         public bool IsTileCompatible() => true;
     }
 }

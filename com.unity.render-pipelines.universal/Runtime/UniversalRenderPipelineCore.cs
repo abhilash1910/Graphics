@@ -15,6 +15,33 @@ namespace UnityEngine.Rendering.Universal
         Subtractive,
     };
 
+    /// <summary>
+    /// Enumeration that indicates what kind of image scaling is occurring if any
+    /// </summary>
+    internal enum ImageScalingMode
+    {
+        /// No scaling
+        None,
+
+        /// Upscaling to a larger image
+        Upscaling,
+
+        /// Downscaling to a smaller image
+        Downscaling
+    }
+
+    /// <summary>
+    /// Enumeration that indicates what kind of upscaling filter is being used
+    /// </summary>
+    internal enum ImageUpscalingFilter
+    {
+        /// Bilinear filtering
+        Linear,
+
+        /// Nearest-Neighbor filtering
+        Point
+    }
+
     public struct RenderingData
     {
         public CullingResults cullResults;
@@ -37,11 +64,17 @@ namespace UnityEngine.Rendering.Universal
         public int additionalLightsCount;
         public int maxPerObjectAdditionalLightsCount;
         public NativeArray<VisibleLight> visibleLights;
+        internal NativeArray<int> originalIndices;
         public bool shadeAdditionalLightsPerVertex;
         public bool supportsMixedLighting;
         public bool reflectionProbeBoxProjection;
         public bool reflectionProbeBlending;
         public bool supportsLightLayers;
+
+        /// <summary>
+        /// True if additional lights enabled.
+        /// </summary>
+        public bool supportsAdditionalLights;
     }
 
     public struct CameraData
@@ -104,12 +137,20 @@ namespace UnityEngine.Rendering.Universal
         internal int pixelHeight;
         internal float aspectRatio;
         public float renderScale;
+        internal ImageScalingMode imageScalingMode;
+        internal ImageUpscalingFilter upscalingFilter;
         public bool clearDepth;
         public CameraType cameraType;
         public bool isDefaultViewport;
         public bool isHdrEnabled;
         public bool requiresDepthTexture;
         public bool requiresOpaqueTexture;
+
+        /// <summary>
+        /// Returns true if post processing passes require depth texture.
+        /// </summary>
+        public bool postProcessingRequiresDepthTexture;
+
 #if ENABLE_VR && ENABLE_XR_MODULE
         public bool xrRendering;
 #endif
@@ -136,6 +177,8 @@ namespace UnityEngine.Rendering.Universal
         /// </summary>
         public bool isPreviewCamera => cameraType == CameraType.Preview;
 
+        internal bool isRenderPassSupportedCamera => (cameraType == CameraType.Game || cameraType == CameraType.Reflection);
+
         /// <summary>
         /// True if the camera device projection matrix is flipped. This happens when the pipeline is rendering
         /// to a render texture in non OpenGL platforms. If you are doing a custom Blit pass to copy camera textures
@@ -150,10 +193,13 @@ namespace UnityEngine.Rendering.Universal
 
             if (renderer != null)
             {
-                bool renderingToBackBufferTarget = renderer.cameraColorTarget == BuiltinRenderTextureType.CameraTarget;
+#pragma warning disable 0618 // Obsolete usage: Backwards compatibility for custom pipelines that aren't using RTHandles
+                var targetId = renderer.cameraColorTargetHandle?.nameID ?? renderer.cameraDepthTarget;
+#pragma warning restore 0618
+                bool renderingToBackBufferTarget = targetId == BuiltinRenderTextureType.CameraTarget;
 #if ENABLE_VR && ENABLE_XR_MODULE
                 if (xr.enabled)
-                    renderingToBackBufferTarget |= renderer.cameraColorTarget == xr.renderTarget && !xr.renderTargetIsRenderTexture;
+                    renderingToBackBufferTarget |= targetId == xr.renderTarget && !xr.renderTargetIsRenderTexture;
 #endif
                 bool renderingToTexture = !renderingToBackBufferTarget || targetTexture != null;
                 return SystemInfo.graphicsUVStartsAtTop && renderingToTexture;
@@ -198,6 +244,15 @@ namespace UnityEngine.Rendering.Universal
         /// Camera position in world space.
         /// </summary>
         public Vector3 worldSpaceCameraPos;
+
+        /// <summary>
+        /// Final background color in the active color space.
+        /// </summary>
+        public Color backgroundColor;
+
+        /// Camera at the top of the overlay camera stack
+        /// </summary>
+        public Camera baseCamera;
     }
 
     public struct ShadowData
@@ -222,6 +277,9 @@ namespace UnityEngine.Rendering.Universal
         public int shadowmapDepthBufferBits;
         public List<Vector4> bias;
         public List<int> resolution;
+
+        internal bool isKeywordAdditionalLightShadowsEnabled;
+        internal bool isKeywordSoftShadowsEnabled;
     }
 
     // Precomputed tile data.
@@ -281,6 +339,7 @@ namespace UnityEngine.Rendering.Universal
         public static readonly int projectionParams = Shader.PropertyToID("_ProjectionParams");
         public static readonly int zBufferParams = Shader.PropertyToID("_ZBufferParams");
         public static readonly int orthoParams = Shader.PropertyToID("unity_OrthoParams");
+        public static readonly int globalMipBias = Shader.PropertyToID("_GlobalMipBias");
 
         public static readonly int screenSize = Shader.PropertyToID("_ScreenSize");
 
@@ -329,6 +388,7 @@ namespace UnityEngine.Rendering.Universal
         public static readonly string CastingPunctualLightShadow = "_CASTING_PUNCTUAL_LIGHT_SHADOW"; // This is used during shadow map generation to differentiate between directional and punctual light shadows, as they use different formulas to apply Normal Bias
         public static readonly string AdditionalLightsVertex = "_ADDITIONAL_LIGHTS_VERTEX";
         public static readonly string AdditionalLightsPixel = "_ADDITIONAL_LIGHTS";
+        internal static readonly string ClusteredRendering = "_CLUSTERED_RENDERING";
         public static readonly string AdditionalLightShadows = "_ADDITIONAL_LIGHT_SHADOWS";
         public static readonly string ReflectionProbeBoxProjection = "_REFLECTION_PROBE_BOX_PROJECTION";
         public static readonly string ReflectionProbeBlending = "_REFLECTION_PROBE_BLENDING";
@@ -337,7 +397,9 @@ namespace UnityEngine.Rendering.Universal
         public static readonly string LightmapShadowMixing = "LIGHTMAP_SHADOW_MIXING";
         public static readonly string ShadowsShadowMask = "SHADOWS_SHADOWMASK";
         public static readonly string LightLayers = "_LIGHT_LAYERS";
+        public static readonly string RenderPassEnabled = "_RENDER_PASS_ENABLED";
         public static readonly string BillboardFaceCameraPos = "BILLBOARD_FACE_CAMERA_POS";
+        public static readonly string LightCookies = "_LIGHT_COOKIES";
 
         public static readonly string DepthNoMsaa = "_DEPTH_NO_MSAA";
         public static readonly string DepthMsaa2 = "_DEPTH_MSAA_2";
@@ -373,6 +435,7 @@ namespace UnityEngine.Rendering.Universal
         public static readonly string Fxaa = "_FXAA";
         public static readonly string Dithering = "_DITHERING";
         public static readonly string ScreenSpaceOcclusion = "_SCREEN_SPACE_OCCLUSION";
+        public static readonly string PointSampling = "_POINT_SAMPLING";
 
         public static readonly string HighQualitySampling = "_HIGH_QUALITY_SAMPLING";
 
@@ -383,10 +446,9 @@ namespace UnityEngine.Rendering.Universal
         public static readonly string _SPOT = "_SPOT";
         public static readonly string _DIRECTIONAL = "_DIRECTIONAL";
         public static readonly string _POINT = "_POINT";
+        public static readonly string _DEFERRED_STENCIL = "_DEFERRED_STENCIL";
         public static readonly string _DEFERRED_FIRST_LIGHT = "_DEFERRED_FIRST_LIGHT";
         public static readonly string _DEFERRED_MAIN_LIGHT = "_DEFERRED_MAIN_LIGHT";
-        public static readonly string _DEFERRED_LIGHT_SHADOWS = "_DEFERRED_LIGHT_SHADOWS";
-        public static readonly string _DEFERRED_SHADOWS_SOFT = "_DEFERRED_SHADOWS_SOFT";
         public static readonly string _GBUFFER_NORMALS_OCT = "_GBUFFER_NORMALS_OCT";
         public static readonly string _DEFERRED_MIXED_LIGHTING = "_DEFERRED_MIXED_LIGHTING";
         public static readonly string LIGHTMAP_ON = "LIGHTMAP_ON";
@@ -405,6 +467,8 @@ namespace UnityEngine.Rendering.Universal
         public static readonly string _ALPHAPREMULTIPLY_ON = "_ALPHAPREMULTIPLY_ON";
         public static readonly string _ALPHAMODULATE_ON = "_ALPHAMODULATE_ON";
         public static readonly string _NORMALMAP = "_NORMALMAP";
+
+        public static readonly string EDITOR_VISUALIZATION = "EDITOR_VISUALIZATION";
 
         // XR
         public static readonly string UseDrawProcedural = "_USE_DRAW_PROCEDURAL";
@@ -510,13 +574,16 @@ namespace UnityEngine.Rendering.Universal
         static RenderTextureDescriptor CreateRenderTextureDescriptor(Camera camera, float renderScale,
             bool isHdrEnabled, int msaaSamples, bool needsAlpha, bool requiresOpaqueTexture)
         {
+            int scaledWidth = (int)((float)camera.pixelWidth * renderScale);
+            int scaledHeight = (int)((float)camera.pixelHeight * renderScale);
+
             RenderTextureDescriptor desc;
 
             if (camera.targetTexture == null)
             {
                 desc = new RenderTextureDescriptor(camera.pixelWidth, camera.pixelHeight);
-                desc.width = (int)((float)desc.width * renderScale);
-                desc.height = (int)((float)desc.height * renderScale);
+                desc.width = scaledWidth;
+                desc.height = scaledHeight;
                 desc.graphicsFormat = MakeRenderTextureGraphicsFormat(isHdrEnabled, needsAlpha);
                 desc.depthBufferBits = 32;
                 desc.msaaSamples = msaaSamples;
@@ -525,8 +592,9 @@ namespace UnityEngine.Rendering.Universal
             else
             {
                 desc = camera.targetTexture.descriptor;
-                desc.width = camera.pixelWidth;
-                desc.height = camera.pixelHeight;
+                desc.width = scaledWidth;
+                desc.height = scaledHeight;
+
                 if (camera.cameraType == CameraType.SceneView && !isHdrEnabled)
                 {
                     desc.graphicsFormat = SystemInfo.GetGraphicsFormat(DefaultFormat.LDR);
@@ -538,9 +606,26 @@ namespace UnityEngine.Rendering.Universal
                 // is given.
             }
 
+            // Make sure dimension is non zero
+            desc.width = Mathf.Max(1, desc.width);
+            desc.height = Mathf.Max(1, desc.height);
+
             desc.enableRandomWrite = false;
             desc.bindMS = false;
             desc.useDynamicScale = camera.allowDynamicResolution;
+
+            // The way RenderTextures handle MSAA fallback when an unsupported sample count of 2 is requested (falling back to numSamples = 1), differs fom the way
+            // the fallback is handled when setting up the Vulkan swapchain (rounding up numSamples to 4, if supported). This caused an issue on Mali GPUs which don't support
+            // 2x MSAA.
+            // The following code makes sure that on Vulkan the MSAA unsupported fallback behaviour is consistent between RenderTextures and Swapchain.
+            // TODO: we should review how all backends handle MSAA fallbacks and move these implementation details in engine code.
+            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan)
+            {
+                // if the requested number of samples is 2, and the supported value is 1x, it means that 2x is unsupported on this GPU.
+                // Then we bump up the requested value to 4.
+                if (desc.msaaSamples == 2 && SystemInfo.GetRenderTextureSupportedMSAASampleCount(desc) == 1)
+                    desc.msaaSamples = 4;
+            }
 
             // check that the requested MSAA samples count is supported by the current platform. If it's not supported,
             // replace the requested desc.msaaSamples value with the actual value the engine falls back to
@@ -555,7 +640,7 @@ namespace UnityEngine.Rendering.Universal
             return desc;
         }
 
-        static Lightmapping.RequestLightsDelegate lightsDelegate = (Light[] requests, NativeArray<LightDataGI> lightsOutput) =>
+        private static Lightmapping.RequestLightsDelegate lightsDelegate = (Light[] requests, NativeArray<LightDataGI> lightsOutput) =>
         {
             LightDataGI lightData = new LightDataGI();
 #if UNITY_EDITOR
@@ -563,24 +648,44 @@ namespace UnityEngine.Rendering.Universal
             for (int i = 0; i < requests.Length; i++)
             {
                 Light light = requests[i];
+                var additionalLightData = light.GetUniversalAdditionalLightData();
+
+                LightmapperUtils.Extract(light, out Cookie cookie);
+
                 switch (light.type)
                 {
                     case LightType.Directional:
                         DirectionalLight directionalLight = new DirectionalLight();
                         LightmapperUtils.Extract(light, ref directionalLight);
-                        lightData.Init(ref directionalLight);
+
+                        if (light.cookie != null)
+                        {
+                            // Size == 1 / Scale
+                            cookie.sizes = additionalLightData.lightCookieSize;
+                            // Offset, Map cookie UV offset to light position on along local axes.
+                            if (additionalLightData.lightCookieOffset != Vector2.zero)
+                            {
+                                var r = light.transform.right * additionalLightData.lightCookieOffset.x;
+                                var u = light.transform.up * additionalLightData.lightCookieOffset.y;
+                                var offset = r + u;
+
+                                directionalLight.position += offset;
+                            }
+                        }
+
+                        lightData.Init(ref directionalLight, ref cookie);
                         break;
                     case LightType.Point:
                         PointLight pointLight = new PointLight();
                         LightmapperUtils.Extract(light, ref pointLight);
-                        lightData.Init(ref pointLight);
+                        lightData.Init(ref pointLight, ref cookie);
                         break;
                     case LightType.Spot:
                         SpotLight spotLight = new SpotLight();
                         LightmapperUtils.Extract(light, ref spotLight);
                         spotLight.innerConeAngle = light.innerSpotAngle * Mathf.Deg2Rad;
                         spotLight.angularFalloff = AngularFalloffType.AnalyticAndInnerAngle;
-                        lightData.Init(ref spotLight);
+                        lightData.Init(ref spotLight, ref cookie);
                         break;
                     case LightType.Area:
                         RectangleLight rectangleLight = new RectangleLight();
@@ -788,6 +893,8 @@ namespace UnityEngine.Rendering.Universal
         // RenderObjectsPass
         //RenderObjects,
 
+        LightCookies,
+
         MainLightShadow,
         ResolveShadows,
         SSAO,
@@ -802,6 +909,7 @@ namespace UnityEngine.Rendering.Universal
         UberPostProcess,
         Bloom,
         LensFlareDataDriven,
+        MotionVectors,
 
         FinalBlit
     }

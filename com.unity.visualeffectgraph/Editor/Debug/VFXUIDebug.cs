@@ -172,14 +172,14 @@ namespace UnityEditor.VFX.UI
                 var worldClipProp = typeof(VisualElement).GetMethod("get_worldClip", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (worldClipProp != null)
                 {
-                    return delegate(VisualElement elt)
+                    return delegate (VisualElement elt)
                     {
                         return (Rect)worldClipProp.Invoke(elt, null);
                     };
                 }
 
                 Debug.LogError("could not retrieve get_worldClip");
-                return delegate(VisualElement elt)
+                return delegate (VisualElement elt)
                 {
                     return new Rect();
                 };
@@ -489,10 +489,6 @@ namespace UnityEditor.VFX.UI
                     break;
                 case Modes.None:
                     None();
-                    Clear();
-                    break;
-                default:
-                    Clear();
                     break;
             }
         }
@@ -521,25 +517,7 @@ namespace UnityEditor.VFX.UI
 
             //.. but in some case, the onRuntimeDataChanged is called too soon, need to update twice
             //because VFXUIDebug relies on VisualEffect : See m_VFX.GetParticleSystemNames
-            m_View.schedule.Execute(() =>
-            {
-                UpdateDebugMode();
-            }).ExecuteLater(0 /* next frame */);
-        }
-
-        void ClearDebugMode()
-        {
-            switch (m_CurrentMode)
-            {
-                case Modes.Efficiency:
-                    m_Graph.onRuntimeDataChanged -= UpdateDebugMode;
-                    break;
-                case Modes.Alive:
-                    m_Graph.onRuntimeDataChanged -= UpdateDebugMode;
-                    break;
-                default:
-                    break;
-            }
+            m_View.schedule.Execute(UpdateDebugMode).ExecuteLater(0 /* next frame */);
         }
 
         public void SetVisualEffect(VisualEffect vfx)
@@ -923,7 +901,7 @@ namespace UnityEditor.VFX.UI
                 }
             }
 
-            return () => {};
+            return () => { };
         }
 
         Action<EventBase> CapacitySetter(string systemName, out bool isSystemInSubGraph)
@@ -947,7 +925,7 @@ namespace UnityEditor.VFX.UI
                 }
             }
             isSystemInSubGraph = false;
-            return (e) => {};
+            return (e) => { };
         }
 
         void UpdateSystemInfoEntry(int systemId, VFXParticleSystemInfo stat)
@@ -989,7 +967,7 @@ namespace UnityEditor.VFX.UI
 
         public void Clear()
         {
-            ClearDebugMode();
+            m_Graph.onRuntimeDataChanged -= UpdateDebugMode;
 
             if (m_ComponentBoard != null && m_Curves != null)
                 m_ComponentBoard.contentContainer.Remove(m_Curves);

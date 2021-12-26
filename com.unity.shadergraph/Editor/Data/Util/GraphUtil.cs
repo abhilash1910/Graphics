@@ -303,6 +303,11 @@ namespace UnityEditor.ShaderGraph
             return DeduplicateName(existingNames, duplicateFormat, name);
         }
 
+        internal static string SanitizeCategoryName(string categoryName, string disallowedPatternRegex = "\"")
+        {
+            return Regex.Replace(categoryName, disallowedPatternRegex, "_");
+        }
+
         internal static string DeduplicateName(IEnumerable<string> existingNames, string duplicateFormat, string name)
         {
             if (!existingNames.Contains(name))
@@ -357,26 +362,6 @@ namespace UnityEditor.ShaderGraph
             }
         }
 
-        static ProcessStartInfo CreateProcessStartInfo(string filePath)
-        {
-            string externalScriptEditor = ScriptEditorUtility.GetExternalScriptEditor();
-
-            ProcessStartInfo psi = new ProcessStartInfo();
-            psi.UseShellExecute = false;
-
-
-        #if UNITY_EDITOR_OSX
-            string arg = string.Format("-a \"{0}\" -n --args \"{1}\"", externalScriptEditor, Path.GetFullPath(filePath));
-            psi.FileName = "open";
-            psi.Arguments = arg;
-        #else
-            psi.Arguments = Path.GetFileName(filePath);
-            psi.WorkingDirectory = Path.GetDirectoryName(filePath);
-            psi.FileName = externalScriptEditor;
-        #endif
-            return psi;
-        }
-
         public static void OpenFile(string path)
         {
             string filePath = Path.GetFullPath(path);
@@ -389,8 +374,7 @@ namespace UnityEditor.ShaderGraph
             string externalScriptEditor = ScriptEditorUtility.GetExternalScriptEditor();
             if (externalScriptEditor != "internal")
             {
-                ProcessStartInfo psi = CreateProcessStartInfo(filePath);
-                Process.Start(psi);
+                InternalEditorUtility.OpenFileAtLineExternal(filePath, 0);
             }
             else
             {

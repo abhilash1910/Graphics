@@ -19,8 +19,10 @@ namespace UnityEngine.Rendering.HighDefinition
         internal const PerObjectData k_RendererConfigurationBakedLightingWithShadowMask = k_RendererConfigurationBakedLighting | PerObjectData.OcclusionProbe | PerObjectData.OcclusionProbeProxyVolume | PerObjectData.ShadowMask;
 
         /// <summary>Returns the render configuration for baked static lighting, this value can be used in a RendererListDesc call to render Lit objects.</summary>
+        /// <returns></returns>
         public static PerObjectData GetBakedLightingRenderConfig() => k_RendererConfigurationBakedLighting;
         /// <summary>Returns the render configuration for baked static lighting with shadow masks, this value can be used in a RendererListDesc call to render Lit objects when shadow masks are enabled.</summary>
+        /// <returns></returns>
         public static PerObjectData GetBakedLightingWithShadowMaskRenderConfig() => k_RendererConfigurationBakedLightingWithShadowMask;
 
         /// <summary>Default HDAdditionalReflectionData</summary>
@@ -99,24 +101,36 @@ namespace UnityEngine.Rendering.HighDefinition
             var baseType = typeof(RenderPipelineMaterial);
             var assembly = baseType.Assembly;
 
-            var types = assembly.GetTypes()
+            try
+            {
+                var types = assembly.GetTypes()
                 .Where(t => t.IsSubclassOf(baseType))
                 .Select(Activator.CreateInstance)
                 .Cast<RenderPipelineMaterial>()
                 .ToList();
 
-            // Note: If there is a need for an optimization in the future of this function, user can
-            // simply fill the materialList manually by commenting the code abode and returning a
-            // custom list of materials they use in their game.
-            //
-            // return new List<RenderPipelineMaterial>
-            // {
-            //    new Lit(),
-            //    new Unlit(),
-            //    ...
-            // };
+                // Note: If there is a need for an optimization in the future of this function, user can
+                // simply fill the materialList manually by commenting the code abode and returning a
+                // custom list of materials they use in their game.
+                //
+                // return new List<RenderPipelineMaterial>
+                // {
+                //    new Lit(),
+                //    new Unlit(),
+                //    ...
+                // };
 
-            return types;
+                return types;
+            }
+            catch (System.Reflection.ReflectionTypeLoadException exception)
+            {
+                foreach (TypeLoadException loaderException in exception.LoaderExceptions)
+                {
+                    Debug.LogError($"Encountered an exception while attempting to reflect the HDRP assembly to extract all RenderPipelineMaterial types.\nThis exception must be fixed in order to fully initialize HDRP correctly.\n{loaderException.Message}\n{loaderException.TypeName}");
+                }
+
+                return null;
+            }
         }
 
         internal static int GetRuntimeDebugPanelWidth(HDCamera hdCamera)
@@ -130,7 +144,15 @@ namespace UnityEngine.Rendering.HighDefinition
         /// <param name="matrix"></param>
         /// <returns></returns>
         internal static float ProjectionMatrixAspect(in Matrix4x4 matrix)
-            => - matrix.m11 / matrix.m00;
+            => -matrix.m11 / matrix.m00;
+
+        /// <summary>
+        /// Determine if a projection matrix is off-center (asymmetric).
+        /// </summary>
+        /// <param name="matrix"></param>
+        /// <returns></returns>
+        internal static bool IsProjectionMatrixAsymmetric(in Matrix4x4 matrix)
+            => matrix.m02 != 0 || matrix.m12 != 0;
 
         internal static Matrix4x4 ComputePixelCoordToWorldSpaceViewDirectionMatrix(float verticalFoV, Vector2 lensShift, Vector4 screenSize, Matrix4x4 worldToViewMatrix, bool renderToCubemap, float aspectRatio = -1, bool isOrthographic = false)
         {
@@ -530,6 +552,9 @@ namespace UnityEngine.Rendering.HighDefinition
         internal static string GetCorePath()
             => "Packages/com.unity.render-pipelines.core/";
 
+        internal static string GetVFXPath()
+            => "Packages/com.unity.visualeffectgraph/";
+
         // It returns the previously set RenderPipelineAsset, assetWasFromQuality is true if the current asset was set through the quality settings
         internal static RenderPipelineAsset SwitchToBuiltinRenderPipeline(out bool assetWasFromQuality)
         {
@@ -568,10 +593,12 @@ namespace UnityEngine.Rendering.HighDefinition
         internal struct PackedMipChainInfo
         {
             public Vector2Int textureSize;
-            public Vector2Int hardwareTextureSize;
             public int mipLevelCount;
             public Vector2Int[] mipLevelSizes;
             public Vector2Int[] mipLevelOffsets;
+
+            private Vector2 cachedTextureScale;
+            private Vector2Int cachedHardwareTextureSize;
 
             private bool m_OffsetBufferWillNeedUpdate;
 
@@ -587,13 +614,16 @@ namespace UnityEngine.Rendering.HighDefinition
             // This function is NOT fast, but it is illustrative, and can be optimized later.
             public void ComputePackedMipChainInfo(Vector2Int viewportSize)
             {
+                bool isHardwareDrsOn = DynamicResolutionHandler.instance.HardwareDynamicResIsEnabled();
+                Vector2Int hardwareTextureSize = isHardwareDrsOn ? DynamicResolutionHandler.instance.ApplyScalesOnSize(viewportSize) : viewportSize;
+                Vector2 textureScale = isHardwareDrsOn ? new Vector2((float)viewportSize.x / (float)hardwareTextureSize.x, (float)viewportSize.y / (float)hardwareTextureSize.y) : new Vector2(1.0f, 1.0f);
+
                 // No work needed.
-                if (viewportSize == mipLevelSizes[0])
+                if (cachedHardwareTextureSize == hardwareTextureSize && cachedTextureScale == textureScale)
                     return;
 
-                bool isHardwareDrsOn = DynamicResolutionHandler.instance.HardwareDynamicResIsEnabled();
-                hardwareTextureSize = isHardwareDrsOn ? DynamicResolutionHandler.instance.ApplyScalesOnSize(viewportSize) : viewportSize;
-                Vector2 textureScale = isHardwareDrsOn ? new Vector2((float)viewportSize.x / (float)hardwareTextureSize.x, (float)viewportSize.y / (float)hardwareTextureSize.y) : new Vector2(1.0f, 1.0f);
+                cachedHardwareTextureSize = hardwareTextureSize;
+                cachedTextureScale = textureScale;
 
                 mipLevelSizes[0] = hardwareTextureSize;
                 mipLevelOffsets[0] = Vector2Int.zero;
@@ -634,7 +664,8 @@ namespace UnityEngine.Rendering.HighDefinition
                 }
                 while ((mipSize.x > 1) || (mipSize.y > 1));
 
-                textureSize = new Vector2Int((int)((float)hardwareTextureSize.x * textureScale.x), (int)((float)hardwareTextureSize.y * textureScale.y));
+                textureSize = new Vector2Int(
+                    (int)Mathf.Ceil((float)hardwareTextureSize.x * textureScale.x), (int)Mathf.Ceil((float)hardwareTextureSize.y * textureScale.y));
 
                 mipLevelCount = mipLevel + 1;
                 m_OffsetBufferWillNeedUpdate = true;
@@ -728,12 +759,24 @@ namespace UnityEngine.Rendering.HighDefinition
 
         internal static bool AreGraphicsAPIsSupported(UnityEditor.BuildTarget target, ref GraphicsDeviceType unsupportedGraphicDevice)
         {
-            foreach (var graphicAPI in UnityEditor.PlayerSettings.GetGraphicsAPIs(target))
+            bool editor = false;
+#if UNITY_EDITOR
+            editor = !UnityEditor.BuildPipeline.isBuildingPlayer;
+#endif
+
+            if (editor)  // In the editor we use the current graphics device instead of the list to avoid blocking the rendering if an invalid API is added but not enabled.
             {
-                if (!HDUtils.IsSupportedGraphicDevice(graphicAPI))
+                return HDUtils.IsSupportedGraphicDevice(SystemInfo.graphicsDeviceType);
+            }
+            else
+            {
+                foreach (var graphicAPI in UnityEditor.PlayerSettings.GetGraphicsAPIs(target))
                 {
-                    unsupportedGraphicDevice = graphicAPI;
-                    return false;
+                    if (!HDUtils.IsSupportedGraphicDevice(graphicAPI))
+                    {
+                        unsupportedGraphicDevice = graphicAPI;
+                        return false;
+                    }
                 }
             }
             return true;
@@ -879,7 +922,7 @@ namespace UnityEngine.Rendering.HighDefinition
             // Post process pass is the final blit only when not in developer mode.
             // In developer mode, we support a range of debug rendering that needs to occur after post processes.
             // In order to simplify writing them, we don't Y-flip in the post process pass but add a final blit at the end of the frame.
-            return !Debug.isDebugBuild && !WillCustomPassBeExecuted(hdCamera, CustomPassInjectionPoint.AfterPostProcess);
+            return !Debug.isDebugBuild && !WillCustomPassBeExecuted(hdCamera, CustomPassInjectionPoint.AfterPostProcess) && !hdCamera.hasCaptureActions;
         }
 
         // These two convertion functions are used to store GUID assets inside materials,
@@ -889,15 +932,15 @@ namespace UnityEngine.Rendering.HighDefinition
         internal static Vector4 ConvertGUIDToVector4(string guid)
         {
             Vector4 vector;
-            byte[]  bytes = new byte[16];
+            byte[] bytes = new byte[16];
 
             for (int i = 0; i < 16; i++)
                 bytes[i] = byte.Parse(guid.Substring(i * 2, 2), System.Globalization.NumberStyles.HexNumber);
 
             unsafe
             {
-                fixed(byte * b = bytes)
-                vector = *(Vector4 *)b;
+                fixed (byte* b = bytes)
+                    vector = *(Vector4*)b;
             }
 
             return vector;
@@ -908,7 +951,7 @@ namespace UnityEngine.Rendering.HighDefinition
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             unsafe
             {
-                byte * v = (byte *)&vector;
+                byte* v = (byte*)&vector;
                 for (int i = 0; i < 16; i++)
                     sb.Append(v[i].ToString("x2"));
                 var guidBytes = new byte[16];
@@ -939,7 +982,7 @@ namespace UnityEngine.Rendering.HighDefinition
         /// <param name="cmd">Command Buffer used for rendering.</param>
         /// <param name="rendererList">Renderer List to render.</param>
         [Obsolete("Please use CoreUtils.DrawRendererList instead.")]
-        public static void DrawRendererList(ScriptableRenderContext renderContext, CommandBuffer cmd, RendererList rendererList)
+        public static void DrawRendererList(ScriptableRenderContext renderContext, CommandBuffer cmd, RendererUtils.RendererList rendererList)
         {
             CoreUtils.DrawRendererList(renderContext, cmd, rendererList);
         }
@@ -1028,7 +1071,7 @@ namespace UnityEngine.Rendering.HighDefinition
             if (camera.scene.IsValid())
                 return EditorSceneManager.GetSceneCullingMask(camera.scene);
 
-            #if UNITY_2020_1_OR_NEWER
+#if UNITY_2020_1_OR_NEWER
             switch (camera.cameraType)
             {
                 case CameraType.SceneView:
@@ -1036,9 +1079,9 @@ namespace UnityEngine.Rendering.HighDefinition
                 default:
                     return SceneCullingMasks.GameViewObjects;
             }
-            #else
+#else
             return 0;
-            #endif
+#endif
 #else
             return 0;
 #endif
@@ -1152,6 +1195,51 @@ namespace UnityEngine.Rendering.HighDefinition
             ComponentSingleton<HDAdditionalReflectionData>.Release();
             ComponentSingleton<HDAdditionalLightData>.Release();
             ComponentSingleton<HDAdditionalCameraData>.Release();
+        }
+
+        internal static float InterpolateOrientation(float fromValue, float toValue, float t)
+        {
+            // Compute the direct distance
+            float directDistance = Mathf.Abs(toValue - fromValue);
+            float outputValue = 0.0f;
+
+            // Handle the two cases
+            if (fromValue < toValue)
+            {
+                float upperRange = 360.0f - toValue;
+                float lowerRange = fromValue;
+                float alternativeDistance = upperRange + lowerRange;
+                if (alternativeDistance < directDistance)
+                {
+                    float targetValue = toValue - 360.0f;
+                    outputValue = fromValue + (targetValue - fromValue) * t;
+                    if (outputValue < 0.0f)
+                        outputValue += 360.0f;
+                }
+                else
+                {
+                    outputValue = fromValue + (toValue - fromValue) * t;
+                }
+            }
+            else
+            {
+                float upperRange = 360.0f - fromValue;
+                float lowerRange = toValue;
+                float alternativeDistance = upperRange + lowerRange;
+                if (alternativeDistance < directDistance)
+                {
+                    float targetValue = toValue + 360.0f;
+                    outputValue = fromValue + (targetValue - fromValue) * t;
+                    if (outputValue > 360.0f)
+                        outputValue -= 360.0f;
+                }
+                else
+                {
+                    outputValue = fromValue + (toValue - fromValue) * t;
+                }
+            }
+
+            return outputValue;
         }
     }
 }

@@ -4,7 +4,7 @@ using UnityEngine.Rendering.HighDefinition;
 namespace UnityEditor.Rendering.HighDefinition
 {
     [CanEditMultipleObjects]
-    [VolumeComponentEditor(typeof(HDShadowSettings))]
+    [CustomEditor(typeof(HDShadowSettings))]
     class HDShadowSettingsEditor : VolumeComponentEditor
     {
         SerializedDataParameter m_MaxShadowDistance;
@@ -49,16 +49,20 @@ namespace UnityEditor.Rendering.HighDefinition
             EditorGUILayout.Space();
 
             EditorGUILayout.LabelField("Directional Light");
+            Unit unit;
 
-            Rect shiftedRect = EditorGUILayout.GetControlRect();
-            shiftedRect.x += 20;
-            shiftedRect.width -= 20;
-            EditorGUI.BeginChangeCheck();
-            Unit unit = (Unit)EditorGUI.EnumPopup(shiftedRect, EditorGUIUtility.TrTextContent("Working Unit", "Except Max Distance which will be still in meter"), m_State.value);
-            if (EditorGUI.EndChangeCheck())
+            using (new IndentLevelScope(9 /*offset*/ + 14 /*checkbox width*/ + 3 /*vertical spacing*/))
             {
-                m_State.value = unit;
-                (serializedObject.targetObject as HDShadowSettings).InitNormalized(m_State.value == Unit.Percent);
+                EditorGUIUtility.labelWidth -= 3; //not sure why the field is decalled. Seams to be a miss in vertical spacing
+                Rect shiftedRect = EditorGUILayout.GetControlRect();
+                EditorGUI.BeginChangeCheck();
+                unit = (Unit)EditorGUI.EnumPopup(shiftedRect, EditorGUIUtility.TrTextContent("Working Unit", "Except Max Distance which will be still in meter"), m_State.value);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    m_State.value = unit;
+                    (serializedObject.targetObject as HDShadowSettings).InitNormalized(m_State.value == Unit.Percent);
+                }
+                EditorGUIUtility.labelWidth += 3;
             }
 
             PropertyField(m_DirectionalTransmissionMultiplier, EditorGUIUtility.TrTextContent("Transmission  Multiplier"));
@@ -79,7 +83,7 @@ namespace UnityEditor.Rendering.HighDefinition
             {
                 int cascadeCount;
 
-                using (new HDEditorUtils.IndentScope())
+                using (new IndentLevelScope())
                 {
                     cascadeCount = m_CascadeShadowSplitCount.value.intValue;
                     Debug.Assert(cascadeCount <= 4); // If we add support for more than 4 cascades, then we should add new entries in the next line
@@ -117,9 +121,8 @@ namespace UnityEditor.Rendering.HighDefinition
 
             Rect visualizeCascade = firstLine;
             visualizeCascade.y -= (EditorGUIUtility.singleLineHeight - 2);
-            visualizeCascade.height -= 2;
-            visualizeCascade.x += EditorGUIUtility.labelWidth + 20;
-            visualizeCascade.width -= EditorGUIUtility.labelWidth + 20;
+            visualizeCascade.height -= 4;
+            visualizeCascade.xMin += EditorGUIUtility.labelWidth - 1;
             bool currentCascadeValue = hdrp.showCascade;
             bool newCascadeValue = GUI.Toggle(visualizeCascade, currentCascadeValue, EditorGUIUtility.TrTextContent("Show Cascades"), EditorStyles.miniButton);
             if (currentCascadeValue ^ newCascadeValue)
@@ -187,7 +190,11 @@ namespace UnityEditor.Rendering.HighDefinition
             float max = o.normalized ? 100f : o.representationDistance;
             float modifiableValue = value.floatValue * max;
             EditorGUI.BeginChangeCheck();
-            modifiableValue = EditorGUILayout.Slider(title, modifiableValue, 0f, max);
+
+            var lineRect = EditorGUILayout.GetControlRect();
+            EditorGUI.BeginProperty(lineRect, title, value);
+            modifiableValue = EditorGUI.Slider(lineRect, title, modifiableValue, 0f, max);
+            EditorGUI.EndProperty();
             if (EditorGUI.EndChangeCheck())
             {
                 modifiableValue /= max;
@@ -211,7 +218,10 @@ namespace UnityEditor.Rendering.HighDefinition
             float max = o.normalized ? 100f : o.representationDistance;
             float modifiableValue = value.floatValue * max;
             EditorGUI.BeginChangeCheck();
-            modifiableValue = EditorGUILayout.Slider(title, modifiableValue, 0f, max);
+            var lineRect = EditorGUILayout.GetControlRect();
+            EditorGUI.BeginProperty(lineRect, title, value);
+            modifiableValue = EditorGUI.Slider(lineRect, title, modifiableValue, 0f, max);
+            EditorGUI.EndProperty();
             if (EditorGUI.EndChangeCheck())
                 value.floatValue = Mathf.Clamp01(modifiableValue / max);
             return true;

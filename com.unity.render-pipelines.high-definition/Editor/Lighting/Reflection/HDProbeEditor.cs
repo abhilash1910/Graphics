@@ -34,11 +34,18 @@ namespace UnityEditor.Rendering.HighDefinition
 
         public override void OnInspectorGUI()
         {
-            m_SerializedHDProbe.Update();
-            EditorGUI.BeginChangeCheck();
-            Draw(m_SerializedHDProbe, this);
-            if (EditorGUI.EndChangeCheck())
-                m_SerializedHDProbe.Apply();
+            if (HDEditorUtils.IsPresetEditor(this))
+            {
+                EditorGUILayout.HelpBox(HDProbeUI.k_UnsupportedPresetPropertiesMessage, MessageType.Info);
+            }
+            else
+            {
+                m_SerializedHDProbe.Update();
+                EditorGUI.BeginChangeCheck();
+                Draw(m_SerializedHDProbe, this);
+                if (EditorGUI.EndChangeCheck())
+                    m_SerializedHDProbe.Apply();
+            }
         }
 
         const string k_ShowChromeGizmoKey = "HDRP:ReflectionProbe:ChromeGizmo";
@@ -109,17 +116,25 @@ namespace UnityEditor.Rendering.HighDefinition
                     ),
                 CoreEditorDrawer<TSerialized>.FoldoutGroup(HDProbeUI.k_CustomSettingsHeader, HDProbeUI.Expandable.Custom, HDProbeUI.k_ExpandedState,
                     HDProbeUI.Drawer<TProvider>.DrawCustomSettings),
-                CoreEditorDrawer<TSerialized>.Group(HDProbeUI.Drawer<TProvider>.DrawBakeButton)
+                CoreEditorDrawer<TSerialized>.Group(HDProbeUI.Drawer<TProvider>.DrawBakeButton),
+                CoreEditorDrawer<TSerialized>.Group(HDProbeUI.Drawer<TProvider>.DrawSHNormalizationStatus)
             ).Draw(serialized, owner);
         }
 
-        protected virtual void DrawHandles(TSerialized serialized, Editor owner) {}
-        protected virtual void DrawAdditionalCaptureSettings(TSerialized serialiezed, Editor owner) {}
+        protected virtual void DrawHandles(TSerialized serialized, Editor owner) { }
+        protected virtual void DrawAdditionalCaptureSettings(TSerialized serialiezed, Editor owner) { }
 
         protected void OnSceneGUI()
         {
-            EditorGUI.BeginChangeCheck();
+            if (target == null)
+                return;
+
             var soo = m_SerializedHDProbePerTarget[target];
+            if (soo == null)
+                return;
+
+            EditorGUI.BeginChangeCheck();
+
             soo.Update();
             HDProbeUI.DrawHandles(soo, this);
 

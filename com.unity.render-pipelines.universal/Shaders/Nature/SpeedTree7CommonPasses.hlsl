@@ -90,6 +90,7 @@ void InitializeInputData(SpeedTreeVertexOutput input, half3 normalTS, out InputD
     inputData = (InputData)0;
 
     inputData.positionWS = input.positionWS.xyz;
+    inputData.positionCS = input.clipPos;
 
     #ifdef EFFECT_BUMP
         inputData.normalWS = TransformTangentToWorld(normalTS, half3x3(input.tangentWS.xyz, input.bitangentWS.xyz, input.normalWS.xyz));
@@ -242,7 +243,7 @@ half4 SpeedTree7FragDepth(SpeedTreeVertexDepthOutput input) : SV_Target
         // We use depth prepass for scene selection in the editor, this code allow to output the outline correctly
         return half4(_ObjectId, _PassValue, 1.0, 1.0);
     #else
-        return half4(0, 0, 0, 0);
+        return half4(input.clipPos.z, 0, 0, 0);
     #endif
 }
 

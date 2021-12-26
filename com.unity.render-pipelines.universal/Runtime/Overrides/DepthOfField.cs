@@ -9,7 +9,7 @@ namespace UnityEngine.Rendering.Universal
         Bokeh
     }
 
-    [Serializable, VolumeComponentMenu("Post-processing/Depth Of Field")]
+    [Serializable, VolumeComponentMenuForRenderPipeline("Post-processing/Depth Of Field", typeof(UniversalRenderPipeline))]
     public sealed class DepthOfField : VolumeComponent, IPostProcessComponent
     {
         [Tooltip("Use \"Gaussian\" for a faster but non physical depth of field; \"Bokeh\" for a more realistic but slower depth of field.")]
@@ -45,6 +45,7 @@ namespace UnityEngine.Rendering.Universal
         [Tooltip("The rotation of aperture blades in degrees.")]
         public ClampedFloatParameter bladeRotation = new ClampedFloatParameter(0f, -180f, 180f);
 
+        /// <inheritdoc/>
         public bool IsActive()
         {
             if (mode.value == DepthOfFieldMode.Off || SystemInfo.graphicsShaderLevel < 35)
@@ -53,9 +54,10 @@ namespace UnityEngine.Rendering.Universal
             return mode.value != DepthOfFieldMode.Gaussian || SystemInfo.supportedRenderTargetCount > 1;
         }
 
+        /// <inheritdoc/>
         public bool IsTileCompatible() => false;
     }
 
     [Serializable]
-    public sealed class DepthOfFieldModeParameter : VolumeParameter<DepthOfFieldMode> { public DepthOfFieldModeParameter(DepthOfFieldMode value, bool overrideState = false) : base(value, overrideState) {} }
+    public sealed class DepthOfFieldModeParameter : VolumeParameter<DepthOfFieldMode> { public DepthOfFieldModeParameter(DepthOfFieldMode value, bool overrideState = false) : base(value, overrideState) { } }
 }

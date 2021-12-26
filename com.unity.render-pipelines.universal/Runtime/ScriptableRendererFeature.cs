@@ -27,7 +27,7 @@ namespace UnityEngine.Rendering.Universal
         /// </summary>
         /// <param name="renderer">Renderer of callback.</param>
         /// <param name="cameraData">CameraData contains all relevant render target information for the camera.</param>
-        public virtual void OnCameraPreCull(ScriptableRenderer renderer, in CameraData cameraData) {}
+        public virtual void OnCameraPreCull(ScriptableRenderer renderer, in CameraData cameraData) { }
 
         /// <summary>
         /// Injects one or multiple <c>ScriptableRenderPass</c> in the renderer.
@@ -35,6 +35,13 @@ namespace UnityEngine.Rendering.Universal
         /// <param name="renderer">Renderer used for adding render passes.</param>
         /// <param name="renderingData">Rendering state. Use this to setup render passes.</param>
         public abstract void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData);
+
+        /// <summary>
+        /// Callback after render targets are initialized. This allows for accessing targets from renderer after they are created and ready.
+        /// </summary>
+        /// <param name="renderer">Renderer used for adding render passes.</param>
+        /// <param name="renderingData">Rendering state. Use this to setup render passes.</param>
+        public virtual void SetupRenderPasses(ScriptableRenderer renderer, in RenderingData renderingData) { }
 
         void OnEnable()
         {

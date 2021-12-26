@@ -63,7 +63,7 @@ float2 PackNormalOctQuadEncode(float3 n)
     //return (n.zz < float2(0.0, 0.0) ? (res0 >= 0.0 ? val : -val) : res0);
 
     // Optimized version of above code:
-    n *= rcp(dot(abs(n), 1.0));
+    n *= rcp(max(dot(abs(n), 1.0), 1e-6));
     float t = saturate(-n.z);
     return n.xy + (n.xy >= 0.0 ? t : -t);
 }
@@ -202,6 +202,7 @@ real3 UnpackNormalmapRGorAG(real4 packedNormal, real scale = 1.0)
     return UnpackNormalAG(packedNormal, scale);
 }
 
+#ifndef BUILTIN_TARGET_API
 real3 UnpackNormal(real4 packedNormal)
 {
 #if defined(UNITY_ASTC_NORMALMAP_ENCODING)
@@ -213,6 +214,7 @@ real3 UnpackNormal(real4 packedNormal)
     return UnpackNormalmapRGorAG(packedNormal, 1.0);
 #endif
 }
+#endif
 
 real3 UnpackNormalScale(real4 packedNormal, real bumpScale)
 {
